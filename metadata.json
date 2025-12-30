@@ -1,0 +1,5 @@
+{
+  "name": "CareerStealth - AI Resume Optimizer",
+  "description": "An advanced ATS optimizer and Hiring Manager simulator powered by Gemini 3. It analyzes your resume against job descriptions, provides a match score, rewrites content, and offers adversarial feedback.",
+  "requestFramePermissions": []
+}
