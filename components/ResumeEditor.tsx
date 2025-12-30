@@ -350,7 +350,14 @@ const TemplateCard: React.FC<{ config: TemplateConfig; isActive: boolean; onSele
 };
 
 const ResumeEditor: React.FC<ResumeEditorProps> = ({ initialData, jobDescription, onBack, darkMode, addToast, missingKeywords = [] }) => {
-  const [data, setData] = useState<ResumeData>({ projects: [], certifications: [], activities: [], softSkills: [], socialLinks: [], ...initialData });
+  const [data, setData] = useState<ResumeData>({ 
+    ...initialData,
+    projects: initialData.projects || [],
+    certifications: initialData.certifications || [],
+    activities: initialData.activities || [],
+    softSkills: initialData.softSkills || [],
+    socialLinks: initialData.socialLinks || []
+  });
   const [activeTemplateId, setActiveTemplateId] = useState<string>('modern-blue');
   const previewRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
