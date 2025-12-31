@@ -71,7 +71,7 @@ export enum AppStep {
   TERMS = 'TERMS'
 }
 
-export type HiringPersona = 'Standard' | 'Ruthless Tech Lead' | 'Chill Startup Founder' | 'Corporate HR' | 'Nitpicky Senior Dev';
+export type HiringPersona = string;
 
 export interface AnalysisInput {
   resumeText: string;

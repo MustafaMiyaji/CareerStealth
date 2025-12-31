@@ -326,25 +326,27 @@ const TemplateCard: React.FC<{ config: TemplateConfig; isActive: boolean; onSele
   return (
     <div onClick={() => onSelect(config.id)} className={`cursor-pointer group relative rounded-xl border transition-all duration-300 overflow-hidden hover:shadow-xl hover:scale-[1.02] flex flex-col h-full bg-white ${isActive ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200 hover:border-indigo-300'}`}>
       <div className="flex-1 bg-slate-100 relative overflow-hidden h-72 w-full">
-         {/* 
-            Preview Logic:
-            - Scale: 0.35 (fits ~210mm width into ~300px container)
-            - Origin: Top Center (anchors preview to top)
-            - No vertical centering flexbox on parent (avoids whitespace gaps)
-         */}
          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 mt-4 origin-top scale-[0.35] pointer-events-none">
             <div className="shadow-lg bg-white" style={{ width: '210mm', minHeight: '297mm', fontSize: '12pt' }}>
                 <UniversalRenderer data={displayData} config={config} spacing="compact" />
             </div>
          </div>
-         {/* Fade out bottom to indicate there is more */}
          <div className="absolute bottom-0 left-0 w-full h-16 bg-gradient-to-t from-white via-white/60 to-transparent z-10"></div>
       </div>
       <div className="p-4 bg-white border-t border-slate-100 relative z-20">
-        <h3 className="font-bold text-slate-800 text-sm">{config.name}</h3>
-        <p className="text-xs text-slate-500 mt-1 line-clamp-2">{config.description}</p>
+        <div className="flex justify-between items-center mb-1">
+            <h3 className="font-bold text-slate-800 text-sm">{config.name}</h3>
+            {isActive && <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold">Active</span>}
+        </div>
+        <p className="text-xs text-slate-500 line-clamp-1 mb-2">{config.description}</p>
+        
+        <div className="text-[10px] text-slate-500 border-t border-slate-100 pt-2 flex items-center gap-1 opacity-70">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+            <span className="font-semibold truncate max-w-[120px]">{previewData.fullName || "User Name"}</span>
+            <span className="hidden sm:inline mx-1">•</span>
+            <span className="hidden sm:inline truncate max-w-[100px]">{previewData.title || "Job Title"}</span>
+        </div>
       </div>
-      {isActive && <div className="absolute top-2 right-2 bg-indigo-500 text-white p-1 rounded-full shadow-md z-30"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg></div>}
     </div>
   );
 };
@@ -376,6 +378,7 @@ const ResumeEditor: React.FC<ResumeEditorProps> = ({ initialData, jobDescription
   const [currentScore, setCurrentScore] = useState<number | null>(null);
   const [scoreFeedback, setScoreFeedback] = useState<string | null>(null);
   const [isImproving, setIsImproving] = useState<string | null>(null);
+  const [mobileTab, setMobileTab] = useState<'editor' | 'preview'>('editor');
   
   // LinkedIn Modal State
   const [showLinkedInModal, setShowLinkedInModal] = useState(false);
@@ -399,9 +402,81 @@ const ResumeEditor: React.FC<ResumeEditorProps> = ({ initialData, jobDescription
   const handleBasicInfoChange = (field: keyof ResumeData, value: string) => { setData(prev => ({ ...prev, [field]: value })); };
   const handleExperienceChange = (id: string, field: string, value: string) => { setData(prev => ({ ...prev, experience: prev.experience.map(exp => exp.id === id ? { ...exp, [field]: value } : exp) })); };
   const handleExpPointChange = (expId: string, pointIndex: number, value: string) => { setData(prev => ({ ...prev, experience: prev.experience.map(exp => { if (exp.id === expId) { const newPoints = [...exp.points]; newPoints[pointIndex] = value; return { ...exp, points: newPoints }; } return exp; }) })); };
+  
+  const handleEducationChange = (id: string, field: string, value: string) => {
+    setData(prev => ({
+      ...prev,
+      education: (prev.education || []).map(edu => edu.id === id ? { ...edu, [field]: value } : edu)
+    }));
+  };
+
+  const handleCertificationChange = (id: string, field: string, value: string) => {
+    setData(prev => ({
+      ...prev,
+      certifications: (prev.certifications || []).map(cert => cert.id === id ? { ...cert, [field]: value } : cert)
+    }));
+  };
+
+  const handleProjectChange = (id: string, field: string, value: string) => {
+    setData(prev => ({
+      ...prev,
+      projects: (prev.projects || []).map(proj => proj.id === id ? { ...proj, [field]: value } : proj)
+    }));
+  };
+
+  const handleProjectPointChange = (projId: string, pointIndex: number, value: string) => {
+    setData(prev => ({
+      ...prev,
+      projects: (prev.projects || []).map(proj => {
+        if (proj.id === projId) {
+          const newPoints = [...proj.points];
+          newPoints[pointIndex] = value;
+          return { ...proj, points: newPoints };
+        }
+        return proj;
+      })
+    }));
+  };
+
+  const handleActivityChange = (id: string, field: string, value: string) => {
+    setData(prev => ({
+      ...prev,
+      activities: (prev.activities || []).map(act => act.id === id ? { ...act, [field]: value } : act)
+    }));
+  };
+
+  const handleActivityPointChange = (actId: string, pointIndex: number, value: string) => {
+    setData(prev => ({
+      ...prev,
+      activities: (prev.activities || []).map(act => {
+        if (act.id === actId) {
+          const newPoints = [...act.points];
+          newPoints[pointIndex] = value;
+          return { ...act, points: newPoints };
+        }
+        return act;
+      })
+    }));
+  };
+
+  const getWordCount = () => {
+    const text = [
+      data.fullName,
+      data.title,
+      data.summary,
+      ...(data.skills || []),
+      ...(data.softSkills || []),
+      ...(data.experience || []).flatMap(e => [e.role, e.company, ...(e.points || [])]),
+      ...(data.education || []).flatMap(e => [e.degree, e.school, e.coursework || '', e.honors || '']),
+      ...(data.projects || []).flatMap(p => [p.title, p.link, ...(p.points || [])]),
+      ...(data.activities || []).flatMap(a => [a.role, a.company, ...(a.points || [])]),
+      ...(data.certifications || []).flatMap(c => [c.name, c.issuer])
+    ].join(' ');
+    return text.trim().split(/\s+/).filter(w => w.length > 0).length;
+  };
+
   const moveItem = (section: keyof ResumeData, index: number, direction: 'up' | 'down') => { const list = data[section] as any[]; if (!list) return; if (direction === 'up' && index > 0) { const newList = [...list]; [newList[index - 1], newList[index]] = [newList[index], newList[index - 1]]; setData(prev => ({ ...prev, [section]: newList })); } else if (direction === 'down' && index < list.length - 1) { const newList = [...list]; [newList[index + 1], newList[index]] = [newList[index], newList[index + 1]]; setData(prev => ({ ...prev, [section]: newList })); } };
   
-  // FIX: Delete Button (Add Type Button, ensure array exists)
   const deleteItem = (section: keyof ResumeData, index: number) => { 
     const list = data[section];
     if (Array.isArray(list)) {
@@ -440,14 +515,6 @@ const ResumeEditor: React.FC<ResumeEditorProps> = ({ initialData, jobDescription
   const removeSocialLink = (index: number) => {
       setData(prev => ({ ...prev, socialLinks: (prev.socialLinks || []).filter((_, i) => i !== index) }));
   };
-
-  const getWordCount = () => { return JSON.stringify(data).split(/\s+/).length; };
-  const handleProjectChange = (id: string, field: string, value: string) => { setData(prev => ({ ...prev, projects: prev.projects.map(proj => proj.id === id ? { ...proj, [field]: value } : proj) })); };
-  const handleProjectPointChange = (projId: string, pointIndex: number, value: string) => { setData(prev => ({ ...prev, projects: prev.projects.map(proj => { if (proj.id === projId) { const newPoints = [...proj.points]; newPoints[pointIndex] = value; return { ...proj, points: newPoints }; } return proj; }) })); };
-  const handleActivityChange = (id: string, field: string, value: string) => { setData(prev => ({ ...prev, activities: prev.activities.map(act => act.id === id ? { ...act, [field]: value } : act) })); };
-  const handleActivityPointChange = (actId: string, pointIndex: number, value: string) => { setData(prev => ({ ...prev, activities: prev.activities.map(act => { if (act.id === actId) { const newPoints = [...act.points]; newPoints[pointIndex] = value; return { ...act, points: newPoints }; } return act; }) })); };
-  const handleEducationChange = (id: string, field: string, value: string) => { setData(prev => ({ ...prev, education: prev.education.map(edu => edu.id === id ? { ...edu, [field]: value } : edu) })); };
-  const handleCertificationChange = (id: string, field: string, value: string) => { setData(prev => ({ ...prev, certifications: prev.certifications.map(cert => cert.id === id ? { ...cert, [field]: value } : cert) })); };
 
   const handleLinkedInImport = async () => {
     if (!linkedInText.trim()) return;
@@ -503,6 +570,12 @@ const ResumeEditor: React.FC<ResumeEditorProps> = ({ initialData, jobDescription
 
   return (
     <div className={`flex flex-col h-screen overflow-hidden relative ${darkMode ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-900'}`}>
+      {/* Mobile Tab Bar */}
+      <div className="md:hidden flex border-b bg-white dark:bg-slate-800 z-20">
+         <button onClick={() => setMobileTab('editor')} className={`flex-1 py-3 text-sm font-bold transition-colors ${mobileTab === 'editor' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 dark:text-slate-400'}`}>Editor</button>
+         <button onClick={() => setMobileTab('preview')} className={`flex-1 py-3 text-sm font-bold transition-colors ${mobileTab === 'preview' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 dark:text-slate-400'}`}>Preview</button>
+      </div>
+
       {showOptimizationBanner && ( <div className="absolute top-16 left-0 w-full z-40 flex justify-center pointer-events-none"> <div className="bg-emerald-600 text-white px-6 py-2 rounded-b-lg shadow-lg animate-bounce text-sm font-medium pointer-events-auto"> ✨ AI has pre-optimized your resume content below! Review & Edit. <button onClick={() => setShowOptimizationBanner(false)} className="ml-4 opacity-70 hover:opacity-100">×</button> </div> </div> )}
       
       {showLinkedInModal && (
@@ -530,6 +603,7 @@ const ResumeEditor: React.FC<ResumeEditorProps> = ({ initialData, jobDescription
         </div>
       )}
 
+      {/* Floating Download Button (Mobile/Desktop) */}
       <div className="fixed bottom-12 right-8 z-50"> <button onClick={downloadPDF} disabled={isDownloading} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-full p-4 shadow-2xl transition-transform hover:scale-110 active:scale-95 flex items-center justify-center animate-bounce" title="Download PDF"> {isDownloading ? ( <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> ) : ( <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg> )} </button> </div>
 
       {showTemplateModal && (
@@ -548,19 +622,20 @@ const ResumeEditor: React.FC<ResumeEditorProps> = ({ initialData, jobDescription
         </div>
       )}
 
-      <div className={`h-16 border-b flex items-center justify-between px-6 flex-shrink-0 z-10 shadow-sm transition-colors ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-        <div className="flex items-center space-x-4">
-          <button onClick={onBack} className={`flex items-center text-sm font-medium transition-colors hover:-translate-x-1 ${darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-700'}`}> <svg className="w-5 h-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg> Back </button>
+      {/* Main Toolbar */}
+      <div className={`h-16 border-b flex items-center justify-between px-4 md:px-6 flex-shrink-0 z-10 shadow-sm transition-colors ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+        <div className="flex items-center space-x-2 md:space-x-4">
+          <button onClick={onBack} className={`flex items-center text-sm font-medium transition-colors hover:-translate-x-1 ${darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-700'}`}> <svg className="w-5 h-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg> <span className="hidden md:inline">Back</span> </button>
           <div className={`h-6 w-px ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`}></div>
-          <button onClick={() => setShowTemplateModal(true)} className={`flex items-center px-4 py-2 rounded-lg text-sm font-bold transition-all hover:shadow-md ${darkMode ? 'bg-slate-700 text-indigo-300 border-slate-600 hover:bg-slate-600' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'}`}> <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> Template </button>
-          <div className="hidden md:flex items-center space-x-6 border-l pl-6 ml-2 h-8 border-gray-300 dark:border-gray-700">
+          <button onClick={() => setShowTemplateModal(true)} className={`flex items-center px-3 md:px-4 py-2 rounded-lg text-sm font-bold transition-all hover:shadow-md ${darkMode ? 'bg-slate-700 text-indigo-300 border-slate-600 hover:bg-slate-600' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'}`}> <svg className="w-4 h-4 mr-0 md:mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> <span className="hidden md:inline">Template</span> </button>
+          <div className="hidden lg:flex items-center space-x-6 border-l pl-6 ml-2 h-8 border-gray-300 dark:border-gray-700">
              <div className="flex flex-col"> <span className="text-[10px] font-mono uppercase opacity-50 mb-1">Font Size: {fontSize}pt</span> <input type="range" min="8" max="14" step="0.5" value={fontSize} onChange={(e) => setFontSize(parseFloat(e.target.value))} className="w-24 h-1.5 bg-indigo-200 rounded-lg appearance-none cursor-pointer hover:bg-indigo-300 transition-colors" /> </div>
              <div className="flex flex-col"> <span className="text-[10px] font-mono uppercase opacity-50 mb-1">View Zoom: {viewZoom}%</span> <input type="range" min="50" max="150" step="10" value={viewZoom} onChange={(e) => setViewZoom(parseInt(e.target.value))} className="w-24 h-1.5 bg-indigo-200 rounded-lg appearance-none cursor-pointer hover:bg-indigo-300 transition-colors" /> </div>
           </div>
-          <button onClick={() => setFocusMode(!focusMode)} className={`text-xs px-2 py-1 rounded hover:scale-105 transition-transform flex items-center gap-1 ${focusMode ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 dark:bg-slate-700'}`} title="Focus Mode"> <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 4l-5-5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg> {focusMode ? 'Exit Focus' : 'Focus'} </button>
+          <button onClick={() => setFocusMode(!focusMode)} className={`hidden md:flex text-xs px-2 py-1 rounded hover:scale-105 transition-transform items-center gap-1 ${focusMode ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 dark:bg-slate-700'}`} title="Focus Mode"> <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 4l-5-5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg> {focusMode ? 'Exit Focus' : 'Focus'} </button>
         </div>
         <div className="relative" ref={dropdownRef}>
-          <button onClick={() => setShowDownloadMenu(!showDownloadMenu)} disabled={isDownloading} className="flex items-center px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 shadow-sm transition-all active:scale-95"> {isDownloading ? 'Generating...' : 'Download Resume'} <svg className={`ml-2 w-4 h-4 transition-transform ${showDownloadMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg> </button>
+          <button onClick={() => setShowDownloadMenu(!showDownloadMenu)} disabled={isDownloading} className="flex items-center px-4 md:px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 shadow-sm transition-all active:scale-95"> {isDownloading ? '...' : 'Download'} <svg className={`ml-2 w-4 h-4 transition-transform ${showDownloadMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg> </button>
           {showDownloadMenu && (
             <div className={`absolute right-0 mt-2 w-48 rounded-xl shadow-xl border py-1 z-50 overflow-hidden animate-scale-in origin-top-right ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
                <button onClick={downloadPDF} className={`w-full text-left px-4 py-3 text-sm flex items-center transition-colors ${darkMode ? 'text-slate-300 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50'}`}> <span className="bg-red-100 text-red-600 p-1.5 rounded mr-3"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 2H7a2 2 0 00-2 2v15a2 2 0 002 2z" /></svg></span> <div> <span className="font-bold block">PDF Document</span> <span className="text-xs opacity-70">Best for applications</span> </div> </button>
@@ -572,7 +647,8 @@ const ResumeEditor: React.FC<ResumeEditorProps> = ({ initialData, jobDescription
       </div>
 
       <div className="flex flex-1 overflow-hidden relative">
-        <div className={`border-r overflow-y-auto p-6 shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-10 flex flex-col transition-all duration-500 ease-in-out ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} ${focusMode ? 'w-0 opacity-0 overflow-hidden px-0 border-r-0' : 'w-full md:w-1/3 opacity-100'}`}>
+        {/* Editor Column */}
+        <div className={`border-r overflow-y-auto p-4 md:p-6 shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-10 flex flex-col transition-all duration-500 ease-in-out ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} ${focusMode ? 'w-0 opacity-0 overflow-hidden px-0 border-r-0' : 'md:w-1/3 opacity-100'} ${mobileTab === 'editor' ? 'w-full block' : 'hidden md:block'}`}>
            
           <div className="mb-6 relative group h-auto">
              <div className="absolute inset-0 rounded-xl overflow-hidden z-0">
@@ -653,7 +729,13 @@ const ResumeEditor: React.FC<ResumeEditorProps> = ({ initialData, jobDescription
             </div>
             
             <div>
-              <div className="flex justify-between items-center mb-2"> <div className="flex items-center gap-2"> <label className="block text-xs font-semibold uppercase opacity-60">Summary</label> <CopyAction text={data.summary} darkMode={darkMode} /> </div> <button onClick={handleImproveSummary} disabled={isImproving === 'summary'} className="text-xs flex items-center text-indigo-500 font-medium hover:text-indigo-400 transition-colors"> {isImproving === 'summary' ? ( <svg className="animate-spin h-3 w-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> ) : ( <span className="mr-1">✨</span> )} {isImproving === 'summary' ? 'Fixing...' : 'Auto-Improve'} </button> </div>
+              <div className="flex justify-between items-center mb-2"> 
+                <div className="flex items-center gap-2"> 
+                    <label className="block text-xs font-semibold uppercase opacity-60">Summary</label> 
+                    {isImproving === 'summary' && <span className="ml-2 text-indigo-500 text-xs animate-pulse font-medium flex items-center">✨ Optimizing...</span>}
+                    <CopyAction text={data.summary} darkMode={darkMode} /> 
+                </div> 
+                <button onClick={handleImproveSummary} disabled={isImproving === 'summary'} className="text-xs flex items-center text-indigo-500 font-medium hover:text-indigo-400 transition-colors"> {isImproving === 'summary' ? ( <svg className="animate-spin h-3 w-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> ) : ( <span className="mr-1">✨</span> )} {isImproving === 'summary' ? 'Fixing...' : 'Auto-Improve'} </button> </div>
               <textarea value={data.summary} onChange={(e) => handleBasicInfoChange('summary', e.target.value)} className={`w-full p-3 border rounded-md text-sm h-32 resize-none outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${darkMode ? 'bg-slate-700 border-slate-600 text-white focus:bg-slate-600' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} />
             </div>
             
@@ -674,77 +756,174 @@ const ResumeEditor: React.FC<ResumeEditorProps> = ({ initialData, jobDescription
             </div>
 
             <div>
-               <div className="flex justify-between items-center mb-4"> <label className="block text-xs font-semibold uppercase opacity-60">Experience</label> <button onClick={() => addItem('experience')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button> </div>
+               <div className="flex justify-between items-center mb-4"> 
+                   <label className="block text-xs font-semibold uppercase opacity-60">Experience</label> 
+                   <button onClick={() => addItem('experience')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button> 
+               </div>
                {(data.experience || []).map((exp, index) => (
                  <div key={exp.id} className={`p-4 rounded-lg border mb-4 shadow-sm relative group animate-slide-down ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10"> <button onClick={() => moveItem('experience', index, 'up')} className="p-1 hover:bg-slate-200 rounded transition-colors">↑</button> <button onClick={() => moveItem('experience', index, 'down')} className="p-1 hover:bg-slate-200 rounded transition-colors">↓</button> <button type="button" onClick={() => deleteItem('experience', index)} className="p-1 hover:bg-red-100 text-red-500 rounded transition-colors relative z-20">🗑️</button> </div>
-                    <div className="flex gap-2 mb-2"> <div className="flex-none pt-2 text-slate-400"><svg className="w-4 h-4 cursor-grab" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg></div> <div className="flex-1 space-y-2"> <input value={exp.company} onChange={(e) => handleExperienceChange(exp.id, 'company', e.target.value)} className={`w-full p-2 rounded border font-bold text-sm outline-none focus:bg-opacity-100 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Company" /> <input value={exp.role} onChange={(e) => handleExperienceChange(exp.id, 'role', e.target.value)} className={`w-full p-2 rounded border text-xs outline-none focus:bg-opacity-100 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Role" /> </div> </div>
-                    <div className="space-y-2 mt-2 ml-6"> {(exp.points || []).map((pt, i) => ( <div key={i} className="relative group/point"> <textarea value={pt} onChange={(e) => handleExpPointChange(exp.id, i, e.target.value)} className={`w-full text-xs p-2 border rounded outline-none min-h-[40px] focus:ring-1 focus:ring-indigo-500 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} /> <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover/point:opacity-100 transition-opacity"> <CopyAction text={pt} darkMode={darkMode} /> <button onClick={() => handleImproveExpPoint(exp.id, i, pt)} className="bg-indigo-500 text-white p-1 rounded hover:bg-indigo-600 transition-colors" title="AI Auto-Fix"> {isImproving === `${exp.id}-${i}` ? ( <svg className="animate-spin h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> ) : ( <span className="text-xs">✨</span> )} </button> </div> </div> ))} </div>
-                 </div>
-               ))}
-            </div>
-            
-            <div>
-               <div className="flex justify-between items-center mb-4"> <label className="block text-xs font-semibold uppercase opacity-60">Education</label> <button onClick={() => addItem('education')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button> </div>
-               {(data.education || []).map((edu, index) => (
-                 <div key={edu.id} className={`p-4 rounded-lg border mb-4 shadow-sm animate-slide-down ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
-                    <div className="flex justify-end mb-2"><button type="button" onClick={() => deleteItem('education', index)} className="text-red-400 hover:text-red-600 text-xs">Remove</button></div>
-                    <div className="space-y-2"> <input value={edu.school} onChange={(e) => handleEducationChange(edu.id, 'school', e.target.value)} className={`w-full p-2 rounded border font-bold text-sm outline-none focus:bg-opacity-100 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="School / University" /> <input value={edu.degree} onChange={(e) => handleEducationChange(edu.id, 'degree', e.target.value)} className={`w-full p-2 rounded border text-xs outline-none focus:bg-opacity-100 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Degree" /> <div className="grid grid-cols-2 gap-2"> <input value={edu.year} onChange={(e) => handleEducationChange(edu.id, 'year', e.target.value)} className={`w-full p-2 rounded border text-xs outline-none focus:bg-opacity-100 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Year" /> <input value={edu.gpa || ''} onChange={(e) => handleEducationChange(edu.id, 'gpa', e.target.value)} className={`w-full p-2 rounded border text-xs outline-none focus:bg-opacity-100 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="GPA (e.g. 3.8/4.0)" /> </div> <input value={edu.honors || ''} onChange={(e) => handleEducationChange(edu.id, 'honors', e.target.value)} className={`w-full p-2 rounded border text-xs outline-none focus:bg-opacity-100 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Honors / Awards" /> <textarea value={edu.coursework || ''} onChange={(e) => handleEducationChange(edu.id, 'coursework', e.target.value)} className={`w-full text-xs p-2 border rounded outline-none min-h-[40px] focus:ring-1 focus:ring-indigo-500 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Relevant Coursework..." /> </div>
-                 </div>
-               ))}
-            </div>
-            
-            <div>
-               <div className="flex justify-between items-center mb-4"> <label className="block text-xs font-semibold uppercase opacity-60">Certifications</label> <button onClick={() => addItem('certifications')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button> </div>
-               {(data.certifications || []).map((cert, index) => (
-                 <div key={cert.id} className={`p-4 rounded-lg border mb-4 shadow-sm relative group animate-slide-down ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10"> <button type="button" onClick={() => deleteItem('certifications', index)} className="p-1 hover:bg-red-100 text-red-500 rounded transition-colors relative z-20">🗑️</button> </div>
-                    <div className="space-y-2"> <input value={cert.name} onChange={(e) => handleCertificationChange(cert.id, 'name', e.target.value)} className={`w-full p-2 rounded border font-bold text-sm outline-none focus:bg-opacity-100 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Certification Name" /> <div className="grid grid-cols-2 gap-2"> <input value={cert.issuer} onChange={(e) => handleCertificationChange(cert.id, 'issuer', e.target.value)} className={`w-full p-2 rounded border text-xs outline-none focus:bg-opacity-100 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Issuer" /> <input value={cert.date} onChange={(e) => handleCertificationChange(cert.id, 'date', e.target.value)} className={`w-full p-2 rounded border text-xs outline-none focus:bg-opacity-100 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Date (e.g. 2024)" /> </div> </div>
-                 </div>
-               ))}
-            </div>
-
-            <div>
-               <div className="flex justify-between items-center mb-4"> <label className="block text-xs font-semibold uppercase opacity-60">Projects</label> <button onClick={() => addItem('projects')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button> </div>
-               {(data.projects || []).map((proj, index) => (
-                 <div key={proj.id} className={`p-4 rounded-lg border mb-4 shadow-sm relative group animate-slide-down ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10"> <button onClick={() => moveItem('projects', index, 'up')} className="p-1 hover:bg-slate-200 rounded transition-colors">↑</button> <button onClick={() => moveItem('projects', index, 'down')} className="p-1 hover:bg-slate-200 rounded transition-colors">↓</button> <button type="button" onClick={() => deleteItem('projects', index)} className="p-1 hover:bg-red-100 text-red-500 rounded transition-colors relative z-20">🗑️</button> </div>
-                    <div className="flex gap-2 mb-2"> <div className="flex-none pt-2 text-slate-400"><svg className="w-4 h-4 cursor-grab" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg></div> <div className="flex-1 space-y-2"> <input value={proj.title} onChange={(e) => handleProjectChange(proj.id, 'title', e.target.value)} className={`w-full p-2 rounded border font-bold text-sm outline-none focus:bg-opacity-100 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Project Title" /> <input value={proj.link} onChange={(e) => handleProjectChange(proj.id, 'link', e.target.value)} className={`w-full p-2 rounded border text-xs outline-none focus:bg-opacity-100 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Link / Tech Stack" /> </div> </div>
-                    <div className="space-y-2 mt-2 ml-6"> {(proj.points || []).map((pt, i) => ( <div key={i} className="relative group/point"> <textarea value={pt} onChange={(e) => handleProjectPointChange(proj.id, i, e.target.value)} className={`w-full text-xs p-2 border rounded outline-none min-h-[40px] focus:ring-1 focus:ring-indigo-500 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} /> <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover/point:opacity-100 transition-opacity"> <CopyAction text={pt} darkMode={darkMode} /> </div> </div> ))} </div>
-                 </div>
-               ))}
-            </div>
-
-            <div>
-               <div className="flex justify-between items-center mb-4"> <label className="block text-xs font-semibold uppercase opacity-60">Activities</label> <button onClick={() => addItem('activities')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button> </div>
-               {(data.activities || []).map((act, index) => (
-                 <div key={act.id} className={`p-4 rounded-lg border mb-4 shadow-sm relative group animate-slide-down ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10"> <button type="button" onClick={() => deleteItem('activities', index)} className="p-1 hover:bg-red-100 text-red-500 rounded transition-colors relative z-20">🗑️</button> </div>
-                    <input value={act.company} onChange={(e) => handleActivityChange(act.id, 'company', e.target.value)} className={`w-full p-2 rounded border font-bold text-sm mb-2 outline-none focus:bg-opacity-100 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Organization" />
-                    <input value={act.role} onChange={(e) => handleActivityChange(act.id, 'role', e.target.value)} className={`w-full p-2 rounded border text-xs mb-2 outline-none focus:bg-opacity-100 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Role" />
-                    <div className="space-y-2 mt-2"> {(act.points || []).map((pt, i) => ( <div key={i} className="relative group/point"> <textarea value={pt} onChange={(e) => handleActivityPointChange(act.id, i, e.target.value)} className={`w-full text-xs p-2 border rounded outline-none min-h-[40px] focus:ring-1 focus:ring-indigo-500 transition-all ${darkMode ? 'bg-slate-600 border-slate-500 text-white' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} /> <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover/point:opacity-100 transition-opacity"> <CopyAction text={pt} darkMode={darkMode} /> </div> </div> ))} </div>
+                    {isImproving && isImproving.startsWith(exp.id) && (
+                        <div className="absolute top-0 right-0 p-2">
+                            <span className="text-[10px] bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300 px-2 py-1 rounded-full font-bold animate-pulse flex items-center gap-1 shadow-sm border border-indigo-200 dark:border-indigo-700">
+                                <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                Optimizing...
+                            </span>
+                        </div>
+                    )}
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                      <button onClick={() => moveItem('experience', index, 'up')} className={`p-1 rounded transition-colors ${darkMode ? 'hover:bg-slate-600 text-slate-400' : 'hover:bg-slate-200 text-slate-500'}`} title="Move Up"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" /></svg></button>
+                      <button onClick={() => moveItem('experience', index, 'down')} className={`p-1 rounded transition-colors ${darkMode ? 'hover:bg-slate-600 text-slate-400' : 'hover:bg-slate-200 text-slate-500'}`} title="Move Down"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg></button>
+                      <button onClick={() => deleteItem('experience', index)} className="p-1 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded transition-colors" title="Delete"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 mb-3">
+                      <input value={exp.role} onChange={(e) => handleExperienceChange(exp.id, 'role', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Role" />
+                      <input value={exp.company} onChange={(e) => handleExperienceChange(exp.id, 'company', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Company" />
+                    </div>
+                    <input value={exp.duration} onChange={(e) => handleExperienceChange(exp.id, 'duration', e.target.value)} className={`w-full p-2 border rounded text-sm mb-3 outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Duration (e.g. Jan 2020 - Present)" />
+                    <div className="space-y-2">
+                      {(exp.points || []).map((pt, i) => (
+                        <div key={i} className="flex gap-2 items-start group/point">
+                          <span className="mt-2 w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0"></span>
+                          <textarea value={pt} onChange={(e) => handleExpPointChange(exp.id, i, e.target.value)} rows={2} className={`flex-1 p-2 text-sm border-b border-transparent focus:border-indigo-300 outline-none resize-none bg-transparent ${darkMode ? 'text-slate-300 focus:bg-slate-800' : 'text-slate-700 focus:bg-slate-50'}`} />
+                          <div className="flex flex-col opacity-0 group-hover/point:opacity-100 transition-opacity">
+                             <button onClick={() => handleImproveExpPoint(exp.id, i, pt)} disabled={isImproving === `${exp.id}-${i}`} className="p-1 text-indigo-400 hover:text-indigo-600" title="Auto-Improve">{isImproving === `${exp.id}-${i}` ? <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 1010 10A10 10 0 0012 2z" opacity="0.2"/><path fill="currentColor" d="M12 2a10 10 0 0110 10" /></svg> : '✨'}</button>
+                             <button onClick={() => { const newPoints = [...exp.points]; newPoints.splice(i, 1); handleExperienceChange(exp.id, 'points', newPoints as any); }} className="p-1 text-slate-300 hover:text-red-500">×</button>
+                          </div>
+                        </div>
+                      ))}
+                      <button onClick={() => { const newPoints = [...exp.points, "New bullet point"]; handleExperienceChange(exp.id, 'points', newPoints as any); }} className="text-xs text-indigo-500 font-bold ml-4 hover:underline">+ Add Bullet</button>
+                    </div>
                  </div>
                ))}
             </div>
 
-          </div>
-        </div>
-
-        <div className={`relative transition-all duration-500 ease-in-out bg-slate-100 dark:bg-slate-950 overflow-y-auto pb-[100px] ${focusMode ? 'flex-1 w-full' : 'w-full md:w-2/3'}`}>
-          <div className="flex justify-center p-8 min-h-full items-start">
-             <div className="relative shadow-2xl transition-transform duration-200 bg-white" style={{ transform: `scale(${viewZoom / 100})`, transformOrigin: 'top center' }}>
-                <div className="absolute inset-0 bg-grain opacity-20 pointer-events-none z-10 mix-blend-multiply"></div>
-                <div ref={previewRef} className="w-[8.5in] min-h-[11in] text-left relative z-0" style={{ fontSize: `${fontSize}pt` }}>
-                    <UniversalRenderer data={data} config={activeTemplateConfig} spacing={spacing} />
+            {/* Projects Section */}
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <label className="block text-xs font-semibold uppercase opacity-60">Projects</label>
+                <button onClick={() => addItem('projects')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button>
+              </div>
+              {(data.projects || []).map((proj, index) => (
+                <div key={proj.id} className={`p-4 rounded-lg border mb-4 shadow-sm relative group animate-slide-down ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <button onClick={() => moveItem('projects', index, 'up')} className={`p-1 rounded transition-colors ${darkMode ? 'hover:bg-slate-600 text-slate-400' : 'hover:bg-slate-200 text-slate-500'}`}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" /></svg></button>
+                    <button onClick={() => moveItem('projects', index, 'down')} className={`p-1 rounded transition-colors ${darkMode ? 'hover:bg-slate-600 text-slate-400' : 'hover:bg-slate-200 text-slate-500'}`}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg></button>
+                    <button onClick={() => deleteItem('projects', index)} className="p-1 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mb-3">
+                    <input value={proj.title} onChange={(e) => handleProjectChange(proj.id, 'title', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Project Title" />
+                    <input value={proj.link} onChange={(e) => handleProjectChange(proj.id, 'link', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Link / Tech Stack" />
+                  </div>
+                  <div className="space-y-2">
+                    {(proj.points || []).map((pt, i) => (
+                      <div key={i} className="flex gap-2 items-start group/point">
+                        <span className="mt-2 w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0"></span>
+                        <textarea value={pt} onChange={(e) => handleProjectPointChange(proj.id, i, e.target.value)} rows={2} className={`flex-1 p-2 text-sm border-b border-transparent focus:border-indigo-300 outline-none resize-none bg-transparent ${darkMode ? 'text-slate-300 focus:bg-slate-800' : 'text-slate-700 focus:bg-slate-50'}`} />
+                        <button onClick={() => { const newPoints = [...proj.points]; newPoints.splice(i, 1); handleProjectChange(proj.id, 'points', newPoints as any); }} className="opacity-0 group-hover/point:opacity-100 p-1 text-slate-300 hover:text-red-500 transition-opacity">×</button>
+                      </div>
+                    ))}
+                    <button onClick={() => { const newPoints = [...proj.points, "New detail"]; handleProjectChange(proj.id, 'points', newPoints as any); }} className="text-xs text-indigo-500 font-bold ml-4 hover:underline">+ Add Point</button>
+                  </div>
                 </div>
-                <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-20"> {[1, 2, 3, 4, 5].map(page => ( <div key={page} className="absolute w-[calc(100%+40px)] -left-[20px] h-0 border-b border-dashed border-red-300 opacity-40 flex justify-end" style={{ top: `${page * 11}in` }}> <span className="text-red-300 text-[10px] font-medium px-2 -mb-4 mr-2 bg-white/80 rounded shadow-sm"> Page {page} Guide </span> </div> ))} </div>
-             </div>
+              ))}
+            </div>
+
+            {/* Education Section */}
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <label className="block text-xs font-semibold uppercase opacity-60">Education</label>
+                <button onClick={() => addItem('education')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button>
+              </div>
+              {(data.education || []).map((edu, index) => (
+                <div key={edu.id} className={`p-4 rounded-lg border mb-4 shadow-sm relative group animate-slide-down ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <button onClick={() => deleteItem('education', index)} className="p-1 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mb-3">
+                    <input value={edu.school} onChange={(e) => handleEducationChange(edu.id, 'school', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="School" />
+                    <input value={edu.degree} onChange={(e) => handleEducationChange(edu.id, 'degree', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Degree" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <input value={edu.year} onChange={(e) => handleEducationChange(edu.id, 'year', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Year" />
+                    <input value={edu.gpa || ''} onChange={(e) => handleEducationChange(edu.id, 'gpa', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="GPA (optional)" />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Activities Section */}
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <label className="block text-xs font-semibold uppercase opacity-60">Activities</label>
+                <button onClick={() => addItem('activities')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button>
+              </div>
+              {(data.activities || []).map((act, index) => (
+                <div key={act.id} className={`p-4 rounded-lg border mb-4 shadow-sm relative group animate-slide-down ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <button onClick={() => deleteItem('activities', index)} className="p-1 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mb-3">
+                    <input value={act.role} onChange={(e) => handleActivityChange(act.id, 'role', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Role" />
+                    <input value={act.company} onChange={(e) => handleActivityChange(act.id, 'company', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Organization" />
+                  </div>
+                  <input value={act.duration} onChange={(e) => handleActivityChange(act.id, 'duration', e.target.value)} className={`w-full p-2 border rounded text-sm mb-3 outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Duration" />
+                  <div className="space-y-2">
+                    {(act.points || []).map((pt, i) => (
+                      <div key={i} className="flex gap-2 items-start group/point">
+                        <span className="mt-2 w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0"></span>
+                        <textarea value={pt} onChange={(e) => handleActivityPointChange(act.id, i, e.target.value)} rows={2} className={`flex-1 p-2 text-sm border-b border-transparent focus:border-indigo-300 outline-none resize-none bg-transparent ${darkMode ? 'text-slate-300 focus:bg-slate-800' : 'text-slate-700 focus:bg-slate-50'}`} />
+                        <button onClick={() => { const newPoints = [...act.points]; newPoints.splice(i, 1); handleActivityChange(act.id, 'points', newPoints as any); }} className="opacity-0 group-hover/point:opacity-100 p-1 text-slate-300 hover:text-red-500 transition-opacity">×</button>
+                      </div>
+                    ))}
+                    <button onClick={() => { const newPoints = [...act.points, "New detail"]; handleActivityChange(act.id, 'points', newPoints as any); }} className="text-xs text-indigo-500 font-bold ml-4 hover:underline">+ Add Bullet</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Certifications Section */}
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <label className="block text-xs font-semibold uppercase opacity-60">Certifications</label>
+                <button onClick={() => addItem('certifications')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button>
+              </div>
+              {(data.certifications || []).map((cert, index) => (
+                <div key={cert.id} className={`p-4 rounded-lg border mb-4 shadow-sm relative group animate-slide-down ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <button onClick={() => deleteItem('certifications', index)} className="p-1 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mb-3">
+                    <input value={cert.name} onChange={(e) => handleCertificationChange(cert.id, 'name', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Certification Name" />
+                    <input value={cert.issuer} onChange={(e) => handleCertificationChange(cert.id, 'issuer', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Issuer" />
+                  </div>
+                  <input value={cert.date} onChange={(e) => handleCertificationChange(cert.id, 'date', e.target.value)} className={`w-full p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Date (e.g. 2023)" />
+                </div>
+              ))}
+            </div>
+            
           </div>
         </div>
 
-        <div className={`absolute bottom-0 left-0 w-full h-8 border-t flex items-center justify-between px-4 text-[10px] font-mono z-30 transition-colors ${darkMode ? 'bg-slate-900 border-slate-700 text-slate-400' : 'bg-white border-slate-200 text-slate-500'}`}>
-           <div className="flex items-center gap-4"> <span>Status: <span className="text-emerald-500 font-bold">●</span> Ready</span> <span>Last Saved: {lastSaved.toLocaleTimeString()}</span> </div> <div> Word Count: {getWordCount()} </div>
+        {/* Preview Column */}
+        <div className={`flex-1 bg-slate-100/50 relative overflow-hidden flex items-center justify-center p-8 transition-colors ${darkMode ? 'bg-slate-900' : 'bg-slate-50'} ${mobileTab === 'preview' ? 'w-full block' : 'hidden md:flex'}`}>
+          <div className="absolute inset-0 bg-grid-slate-200/50 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] dark:bg-grid-slate-800/20 pointer-events-none"></div>
+          <div className="h-full w-full overflow-auto flex justify-center items-start custom-scrollbar" style={{ perspective: '1000px' }}>
+            <div
+              ref={previewRef}
+              className="bg-white shadow-2xl transition-transform duration-300 ease-out origin-top"
+              style={{
+                width: '8.5in',
+                minHeight: '11in',
+                transform: `scale(${viewZoom / 100})`,
+                transformOrigin: 'top center',
+                fontSize: `${fontSize}pt`
+              }}
+            >
+              <UniversalRenderer data={data} config={activeTemplateConfig} spacing={spacing} />
+            </div>
+          </div>
         </div>
+
       </div>
     </div>
   );

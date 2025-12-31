@@ -110,18 +110,18 @@ const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ result, onReset, on
         </div>
       )}
 
-      <div className="flex justify-between items-center mb-8 animate-fade-in">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 animate-fade-in">
         <h2 className={`text-3xl font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Analysis Report</h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 w-full md:w-auto">
           <button 
             onClick={handleExportJSON}
-            className={`text-sm px-4 py-2 border rounded-lg transition-colors hover:scale-105 active:scale-95 ${darkMode ? 'border-slate-600 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+            className={`flex-1 md:flex-none text-sm px-4 py-2 border rounded-lg transition-colors hover:scale-105 active:scale-95 ${darkMode ? 'border-slate-600 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
           >
             Export JSON
           </button>
           <button 
             onClick={onReset}
-            className={`text-sm px-4 py-2 border rounded-lg transition-colors hover:scale-105 active:scale-95 ${darkMode ? 'border-slate-600 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+            className={`flex-1 md:flex-none text-sm px-4 py-2 border rounded-lg transition-colors hover:scale-105 active:scale-95 ${darkMode ? 'border-slate-600 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
           >
             Start New
           </button>
@@ -178,7 +178,7 @@ const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ result, onReset, on
         </div>
 
         {/* Details Card */}
-        <div className={`glass p-8 rounded-2xl shadow-lg border lg:col-span-2 hover-card opacity-0 animate-slide-up ${darkMode ? 'border-slate-700 bg-slate-800/50' : 'border-slate-100 bg-white/50'}`} style={{ animationDelay: '0.2s' }}>
+        <div className={`glass p-6 md:p-8 rounded-2xl shadow-lg border lg:col-span-2 hover-card opacity-0 animate-slide-up ${darkMode ? 'border-slate-700 bg-slate-800/50' : 'border-slate-100 bg-white/50'}`} style={{ animationDelay: '0.2s' }}>
           <h3 className={`text-sm font-bold uppercase tracking-wider mb-4 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Detected Keyword Gaps</h3>
           <div className="flex flex-wrap gap-2 mb-8">
             {result.missingKeywords.length > 0 ? (
