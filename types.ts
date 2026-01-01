@@ -5,6 +5,29 @@ export interface AnalysisResult {
   managerRoast: string;
   fixStrategy: string;
   structuredResume: ResumeData;
+  interviewPrep: InterviewQuestion[];
+}
+
+export interface InterviewQuestion {
+  question: string;
+  context: string;
+  idealAnswer: string;
+}
+
+export interface LearningResource {
+  skill: string;
+  priority: 'High' | 'Medium' | 'Low';
+  plan: string; // "Week 1: Build X..."
+}
+
+export interface HistoryItem {
+  id: string;
+  timestamp: number;
+  companyName: string;
+  role: string;
+  inputData: AnalysisInput;
+  result: AnalysisResult;
+  coverLetter?: string;
 }
 
 export interface SocialLink {
@@ -16,16 +39,16 @@ export interface SocialLink {
 export interface ResumeData {
   fullName: string;
   title: string;
-  contactInfo: string; // Phone | Email | Location
-  socialLinks?: SocialLink[]; // New social links
+  contactInfo: string;
+  socialLinks?: SocialLink[];
   summary: string;
-  skills: string[]; // Technical Skills
-  softSkills: string[]; // New Soft Skills section
+  skills: string[];
+  softSkills: string[];
   experience: ExperienceItem[];
   education: EducationItem[];
   projects: ProjectItem[];
-  certifications: CertificationItem[]; // Changed from string[] to object array
-  activities: ExperienceItem[]; // Reuse ExperienceItem for activities (Role, Org, Date, Points)
+  certifications: CertificationItem[];
+  activities: ExperienceItem[];
 }
 
 export interface CertificationItem {
@@ -33,10 +56,11 @@ export interface CertificationItem {
   name: string;
   issuer: string;
   date: string;
+  url?: string;
 }
 
 export interface ExperienceItem {
-  id: string; // for React keys
+  id: string;
   role: string;
   company: string;
   duration: string;
@@ -46,7 +70,7 @@ export interface ExperienceItem {
 export interface ProjectItem {
   id: string;
   title: string;
-  link: string; // or subtitle/tech stack
+  link?: string;
   points: string[];
 }
 
@@ -55,9 +79,9 @@ export interface EducationItem {
   degree: string;
   school: string;
   year: string;
-  gpa?: string;       // New
-  coursework?: string; // New
-  honors?: string;     // New
+  gpa?: string;
+  coursework?: string;
+  honors?: string;
 }
 
 export enum AppStep {
@@ -76,7 +100,7 @@ export type HiringPersona = string;
 export interface AnalysisInput {
   resumeText: string;
   resumeFile?: {
-    data: string; // Base64 string (without data: prefix)
+    data: string;
     mimeType: string;
     fileName: string;
   };
@@ -84,7 +108,7 @@ export interface AnalysisInput {
   persona: HiringPersona;
 }
 
-export type TemplateType = string; // Changed to string to support ID-based system
+export type TemplateType = string;
 
 export interface ReEvaluationResult {
   score: number;

@@ -128,11 +128,16 @@ const InputSection: React.FC<InputSectionProps> = ({ onAnalyze, isAnalyzing, dar
         reader.readAsDataURL(file);
       } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
         const arrayBuffer = await file.arrayBuffer();
-        const result = await mammoth.extractRawText({ arrayBuffer });
-        setResumeText(result.value);
-        setExtractionPreview(result.value.substring(0, 300) + "...");
+        // Use convertToHtml to extract text AND embedded links
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        setResumeText(result.value); // Send HTML to Gemini
+        
+        // Strip tags for the UI preview only
+        const plainText = result.value.replace(/<[^>]*>/g, ' ');
+        setExtractionPreview(plainText.substring(0, 300) + "...");
+        
         setIsProcessingFile(false);
-        addToast("DOCX text extracted", "success");
+        addToast("DOCX text & links extracted", "success");
       } else if (file.type === 'text/plain') {
         const text = await file.text();
         setResumeText(text);
@@ -224,7 +229,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onAnalyze, isAnalyzing, dar
                        {resumeFile?.fileName || "Pasted Text / Extracted"}
                      </p>
                      <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                       {resumeFile ? "PDF Analysis Mode" : "Text Analysis Mode"}
+                       {resumeFile ? "PDF Analysis Mode" : "Text/HTML Mode"}
                      </p>
                   </div>
                   <button 
@@ -256,7 +261,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onAnalyze, isAnalyzing, dar
             {resumeFile ? (
               <div className="flex-1 flex flex-col items-center justify-center p-8 text-slate-400">
                  <div className="w-20 h-20 rounded-full bg-indigo-50 flex items-center justify-center mb-4 animate-pulse">
-                    <svg className="w-10 h-10 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    <svg className="w-10 h-10 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.707.293V19a2 2 0 01-2 2z" /></svg>
                  </div>
                  <p className="text-sm font-bold">PDF Ready</p>
                  <p className="text-xs text-center mt-1 max-w-xs opacity-70">Visual layout analysis enabled.</p>

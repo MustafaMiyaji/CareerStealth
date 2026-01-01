@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ResumeData, ExperienceItem, ProjectItem, EducationItem, CertificationItem, SocialLink } from '../types';
-import { reEvaluateResume, improveSection, parseLinkedInProfile } from '../services/geminiService';
+import { reEvaluateResume, improveSection, parseLinkedInProfile, generateLatex } from '../services/geminiService';
 import AnalysisChart from './AnalysisChart';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -15,11 +15,11 @@ interface ResumeEditorProps {
 }
 
 const COLORS = {
-  slate: { primary: 'text-slate-900', accent: 'text-slate-600', bg: 'bg-slate-900', border: 'border-slate-900', light: 'bg-slate-100' },
-  blue: { primary: 'text-blue-900', accent: 'text-blue-600', bg: 'bg-blue-900', border: 'border-blue-900', light: 'bg-blue-50' },
-  indigo: { primary: 'text-indigo-900', accent: 'text-indigo-600', bg: 'bg-indigo-900', border: 'border-indigo-900', light: 'bg-indigo-50' },
-  emerald: { primary: 'text-emerald-900', accent: 'text-emerald-600', bg: 'bg-emerald-900', border: 'border-emerald-900', light: 'bg-emerald-50' },
-  rose: { primary: 'text-rose-900', accent: 'text-rose-600', bg: 'bg-rose-900', border: 'border-rose-900', light: 'bg-rose-50' },
+  slate: { primary: 'text-slate-900', accent: 'text-slate-600', bg: 'bg-slate-900', border: 'border-slate-900', light: 'bg-slate-100', skeleton: 'bg-slate-300', thumb: 'bg-slate-800' },
+  blue: { primary: 'text-blue-900', accent: 'text-blue-600', bg: 'bg-blue-900', border: 'border-blue-900', light: 'bg-blue-50', skeleton: 'bg-blue-200', thumb: 'bg-blue-800' },
+  indigo: { primary: 'text-indigo-900', accent: 'text-indigo-600', bg: 'bg-indigo-900', border: 'border-indigo-900', light: 'bg-indigo-50', skeleton: 'bg-indigo-200', thumb: 'bg-indigo-800' },
+  emerald: { primary: 'text-emerald-900', accent: 'text-emerald-600', bg: 'bg-emerald-900', border: 'border-emerald-900', light: 'bg-emerald-50', skeleton: 'bg-emerald-200', thumb: 'bg-emerald-800' },
+  rose: { primary: 'text-rose-900', accent: 'text-rose-600', bg: 'bg-rose-900', border: 'border-rose-900', light: 'bg-rose-50', skeleton: 'bg-rose-200', thumb: 'bg-rose-800' },
 };
 
 type ColorTheme = keyof typeof COLORS;
@@ -45,22 +45,6 @@ const TEMPLATE_GALLERY: TemplateConfig[] = [
   { id: 'compact-dense', name: 'Compact', layout: 'compact', color: 'slate', description: 'Fits everything on one page.' },
 ];
 
-const MiniCircularScore: React.FC<{ score: number; darkMode: boolean }> = ({ score, darkMode }) => {
-  const radius = 20;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (score / 100) * circumference;
-  const color = score > 75 ? '#10b981' : score > 50 ? '#f59e0b' : '#ef4444';
-  return (
-    <div className="relative w-16 h-16 flex items-center justify-center">
-      <svg width="60" height="60" className="transform -rotate-90">
-        <circle cx="30" cy="30" r={radius} stroke={darkMode ? "#334155" : "#e2e8f0"} strokeWidth="6" fill="transparent" />
-        <circle cx="30" cy="30" r={radius} stroke={color} strokeWidth="6" fill="transparent" strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" className="transition-all duration-1000 ease-out" />
-      </svg>
-      <div className={`absolute inset-0 flex items-center justify-center font-bold text-sm ${darkMode ? 'text-white' : 'text-slate-900'}`}>{Math.round(score)}%</div>
-    </div>
-  );
-};
-
 const CopyAction: React.FC<{ text: string; darkMode?: boolean }> = ({ text, darkMode }) => {
   const [copied, setCopied] = useState(false);
   const onClick = (e: React.MouseEvent) => {
@@ -73,7 +57,24 @@ const CopyAction: React.FC<{ text: string; darkMode?: boolean }> = ({ text, dark
   );
 };
 
-const UniversalRenderer: React.FC<{ data: ResumeData; config: TemplateConfig; spacing: 'compact' | 'normal' | 'open'; }> = ({ data, config, spacing }) => {
+// Highlighter for Diff Mode
+const HighlightText: React.FC<{ text: string; keywords: string[] }> = ({ text, keywords }) => {
+  if (!keywords || keywords.length === 0) return <>{text}</>;
+  const parts = text.split(/(\b)/);
+  return (
+    <>
+      {parts.map((part, i) => {
+         const isMatch = keywords.some(k => k.toLowerCase() === part.toLowerCase());
+         return isMatch 
+           ? <span key={i} className="bg-emerald-200 text-emerald-900 rounded px-0.5 box-decoration-clone">{part}</span> 
+           : part;
+      })}
+    </>
+  );
+};
+
+// THE ACTUAL RENDERER FOR THE RESUME (Used in Main Preview)
+const UniversalRenderer: React.FC<{ data: ResumeData; config: TemplateConfig; spacing: 'compact' | 'normal' | 'open'; diffMode: boolean; missingKeywords: string[]; }> = ({ data, config, spacing, diffMode, missingKeywords }) => {
   const theme = COLORS[config.color] || COLORS.slate;
   const spacingClass = spacing === 'compact' ? 'space-y-[0.25em]' : spacing === 'open' ? 'space-y-[1em]' : 'space-y-[0.5em]';
   const marginClass = spacing === 'compact' ? 'mb-[0.5em]' : spacing === 'open' ? 'mb-[1.5em]' : 'mb-[1em]';
@@ -81,6 +82,20 @@ const UniversalRenderer: React.FC<{ data: ResumeData; config: TemplateConfig; sp
   const isSidebar = config.layout === 'tech';
   const isCentered = config.layout === 'modern' || config.layout === 'minimal';
   
+  const RenderText = ({ text }: { text: string }) => {
+      if (!text) return null;
+      if (!diffMode) return <>{text}</>;
+      return <HighlightText text={text} keywords={missingKeywords} />;
+  };
+
+  const LinkText = ({ text, url, className }: { text: string; url?: string; className?: string }) => {
+     if (!text) return null;
+     if (url) {
+         return <a href={url} target="_blank" rel="noopener noreferrer" className={`underline decoration-dotted hover:decoration-solid ${className}`}><RenderText text={text} /></a>;
+     }
+     return <span className={className}><RenderText text={text} /></span>;
+  };
+
   const Header = () => (
     <div className={`${marginClass} ${isCentered ? 'text-center' : ''} ${config.layout === 'ivy' ? 'border-b pb-4 ' + theme.border : ''}`}>
        <h1 className={`text-[1.875em] font-bold uppercase tracking-tight leading-none ${theme.primary}`}>{data.fullName}</h1>
@@ -90,10 +105,11 @@ const UniversalRenderer: React.FC<{ data: ResumeData; config: TemplateConfig; sp
           {(data.socialLinks && data.socialLinks.length > 0) && (
               <div className={`flex flex-wrap gap-x-4 gap-y-1 mt-1 text-[0.9em] ${isCentered ? 'justify-center' : ''}`}>
                   {data.socialLinks.map((link, i) => (
-                      <span key={i} className="flex items-center gap-1">
-                          <span className="opacity-70 font-semibold text-[0.8em] uppercase tracking-wide">{link.platform}</span> 
-                          <span className="text-indigo-600/80">{link.url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
-                      </span>
+                      <a key={i} href={link.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-indigo-600 transition-colors group">
+                          <span className="opacity-70 font-bold text-[0.8em] uppercase tracking-wider underline decoration-dotted hover:decoration-solid">
+                              {link.platform}
+                          </span>
+                      </a>
                   ))}
               </div>
           )}
@@ -102,7 +118,7 @@ const UniversalRenderer: React.FC<{ data: ResumeData; config: TemplateConfig; sp
   );
 
   const SectionTitle = ({ title }: { title: string }) => (
-     <h2 className={`text-[0.75em] font-bold uppercase tracking-wider mb-[0.75em] ${theme.primary} ${config.layout === 'classic' ? 'border-b border-slate-300 pb-1' : ''}`}>
+     <h2 className={`text-[0.85em] font-bold uppercase tracking-wider mb-[0.5em] ${theme.primary} ${config.layout === 'classic' ? 'border-b border-slate-300 pb-1' : ''}`}>
        {title}
      </h2>
   );
@@ -120,7 +136,7 @@ const UniversalRenderer: React.FC<{ data: ResumeData; config: TemplateConfig; sp
     <div className={`${paddingClass} w-full min-h-[inherit] ${isSidebar ? 'grid grid-cols-3 gap-6' : ''} bg-white text-slate-800 font-sans box-border`}>
        {isSidebar ? (
           <>
-            <div className={`col-span-1 ${theme.light} p-[1em] rounded-lg h-full`}>
+            <div className={`col-span-1 ${theme.light} p-[1.5em] rounded-lg h-full`}>
                <div className="mb-[1.5em]">
                  <h1 className={`text-[1.5em] font-bold ${theme.primary} leading-tight`}>{data.fullName}</h1>
                  <p className={`text-[0.875em] ${theme.accent} mt-[0.25em]`}>{data.title}</p>
@@ -129,9 +145,10 @@ const UniversalRenderer: React.FC<{ data: ResumeData; config: TemplateConfig; sp
                     {safeLinks.length > 0 && (
                         <div className="mt-[0.5em] pt-[0.5em] border-t border-slate-200/50">
                             {safeLinks.map((link, i) => (
-                                <div key={i} className="flex flex-col mb-1">
-                                    <span className="font-bold opacity-70 text-[9px] uppercase tracking-wider">{link.platform}</span>
-                                    <span className="truncate text-indigo-600/80">{link.url.replace(/^https?:\/\/(www\.)?/, '')}</span>
+                                <div key={i} className="mb-1">
+                                    <a href={link.url} target="_blank" rel="noopener noreferrer" className="font-bold opacity-70 text-[9px] uppercase tracking-wider hover:text-indigo-600 underline decoration-dotted hover:decoration-solid">
+                                        {link.platform}
+                                    </a>
                                 </div>
                             ))}
                         </div>
@@ -141,17 +158,9 @@ const UniversalRenderer: React.FC<{ data: ResumeData; config: TemplateConfig; sp
                <div className="mb-[1.5em]">
                   <SectionTitle title="Skills" />
                   <div className="flex flex-wrap gap-[0.25em]">
-                     {safeSkills.map((skill, i) => ( <span key={i} className={`text-[0.625em] px-[0.5em] py-[0.25em] bg-white rounded shadow-sm border ${theme.border} border-opacity-10`}>{skill}</span> ))}
+                     {safeSkills.map((skill, i) => ( <span key={i} className={`text-[0.625em] px-[0.5em] py-[0.25em] bg-white rounded shadow-sm border ${theme.border} border-opacity-10`}><RenderText text={skill} /></span> ))}
                   </div>
                </div>
-                {safeSoftSkills.length > 0 && (
-                  <div className="mb-[1.5em]">
-                      <SectionTitle title="Soft Skills" />
-                      <div className="flex flex-wrap gap-[0.25em]">
-                        {safeSoftSkills.map((skill, i) => ( <span key={i} className={`text-[0.625em] px-[0.5em] py-[0.25em] bg-white rounded shadow-sm border ${theme.border} border-opacity-10 italic`}>{skill}</span> ))}
-                      </div>
-                  </div>
-                )}
                <div className="mb-[1.5em]">
                   <SectionTitle title="Education" />
                   {safeEducation.map((edu, i) => (
@@ -159,28 +168,14 @@ const UniversalRenderer: React.FC<{ data: ResumeData; config: TemplateConfig; sp
                         <div className="font-bold">{edu.degree}</div>
                         <div className="text-slate-600">{edu.school}</div>
                         <div className="text-slate-400 mb-[0.25em]">{edu.year}</div>
-                        {edu.gpa && <div className="text-[0.75em] text-slate-500">GPA: {edu.gpa}</div>}
                      </div>
                   ))}
                </div>
-               {/* Sidebar Certifications */}
-               {safeCertifications.length > 0 && (
-                  <div className="mb-[1.5em]">
-                      <SectionTitle title="Certifications" />
-                      {safeCertifications.map((cert, i) => (
-                          <div key={i} className="mb-[0.5em] text-[0.75em]">
-                              <div className="font-bold leading-tight">{cert.name}</div>
-                              <div className="text-slate-600 leading-tight">{cert.issuer}</div>
-                              <div className="text-slate-400 text-[0.65em]">{cert.date}</div>
-                          </div>
-                      ))}
-                  </div>
-               )}
             </div>
             <div className="col-span-2">
                <div className={marginClass}>
                   <SectionTitle title="Summary" />
-                  <p className="text-[0.875em] leading-relaxed text-slate-700">{data.summary}</p>
+                  <p className="text-[0.875em] leading-relaxed text-slate-700"><RenderText text={data.summary} /></p>
                </div>
                <div className={marginClass}>
                   <SectionTitle title="Experience" />
@@ -193,56 +188,33 @@ const UniversalRenderer: React.FC<{ data: ResumeData; config: TemplateConfig; sp
                            </div>
                            <div className={`text-[0.75em] font-semibold ${theme.accent} mb-[0.5em]`}>{exp.company}</div>
                            <ul className="list-disc list-outside ml-[1em] space-y-[0.25em]">
-                              {(exp.points || []).map((pt, i) => ( <li key={i} className="text-[0.875em] text-slate-700 pl-1 marker:text-slate-400">{pt}</li> ))}
+                              {(exp.points || []).map((pt, i) => ( <li key={i} className="text-[0.875em] text-slate-700 pl-1 marker:text-slate-400"><RenderText text={pt} /></li> ))}
                            </ul>
                         </div>
                      ))}
                   </div>
                </div>
-               {safeProjects.length > 0 && <div className={marginClass}><SectionTitle title="Projects" /><div className={spacingClass}>{safeProjects.map((proj) => (<div key={proj.id} className="mb-[0.75em]"><div className="flex justify-between items-baseline"><h3 className="font-bold text-[0.875em]">{proj.title}</h3>{proj.link && <span className="text-[0.75em] text-indigo-500">{proj.link}</span>}</div><ul className="list-disc list-outside ml-[1em] mt-[0.25em] space-y-[0.25em]">{proj.points.map((pt, i) => (<li key={i} className="text-[0.875em] text-slate-700 pl-1 marker:text-slate-400">{pt}</li>))}</ul></div>))}</div></div>}
-               
-               {/* Sidebar Layout: Activities */}
-               {safeActivities.length > 0 && (
-                   <div className={marginClass}>
-                       <SectionTitle title="Activities" />
-                       <div className={spacingClass}>
-                           {safeActivities.map((act) => (
-                               <div key={act.id} className="mb-[0.75em]">
-                                   <div className="flex justify-between items-baseline">
-                                       <h3 className="font-bold text-[0.875em]">{act.role}</h3>
-                                       <span className="text-[0.75em] text-slate-500 font-mono">{act.duration}</span>
-                                   </div>
-                                   <div className={`text-[0.75em] font-semibold ${theme.accent} mb-[0.25em]`}>{act.company}</div>
-                                   <ul className="list-disc list-outside ml-[1em] mt-[0.25em] space-y-[0.25em]">
-                                       {(act.points || []).map((pt, i) => (<li key={i} className="text-[0.875em] text-slate-700 pl-1 marker:text-slate-400">{pt}</li>))}
-                                   </ul>
-                               </div>
-                           ))}
-                       </div>
-                   </div>
-               )}
+               {safeProjects.length > 0 && <div className={marginClass}><SectionTitle title="Projects" /><div className={spacingClass}>{safeProjects.map((proj) => (<div key={proj.id} className="mb-[0.75em]"><div className="flex justify-between items-baseline"><h3 className="font-bold text-[0.875em]"><LinkText text={proj.title} url={proj.link} /></h3></div><ul className="list-disc list-outside ml-[1em] mt-[0.25em] space-y-[0.25em]">{proj.points.map((pt, i) => (<li key={i} className="text-[0.875em] text-slate-700 pl-1 marker:text-slate-400"><RenderText text={pt} /></li>))}</ul></div>))}</div></div>}
             </div>
           </>
         ) : (
           <>
              <Header />
-             <div className={marginClass}> <SectionTitle title="Summary" /> <p className="text-[0.875em] leading-relaxed text-slate-700">{data.summary}</p> </div>
+             <div className={marginClass}> 
+                <SectionTitle title="Summary" /> 
+                <p className="text-[0.875em] leading-relaxed text-slate-700"><RenderText text={data.summary} /></p>
+             </div>
              
              <div className={marginClass}> 
                 <SectionTitle title="Skills" /> 
                 <div className="text-[0.875em] text-slate-700 leading-relaxed"> 
-                    <span className="font-bold text-[0.75em] uppercase mr-2 opacity-70">Technical:</span> {safeSkills.join(' • ')} 
+                    <span className="font-bold text-[0.75em] uppercase mr-2 opacity-70">Technical:</span> 
+                    {safeSkills.map((skill, i) => <span key={i}><RenderText text={skill} />{i < safeSkills.length -1 ? ' • ' : ''}</span>)}
                 </div>
-                {safeSoftSkills.length > 0 && (
-                    <div className="text-[0.875em] text-slate-700 mt-[0.5em] leading-relaxed">
-                        <span className="font-bold text-[0.75em] uppercase mr-2 opacity-70">Professional:</span> {safeSoftSkills.join(' • ')}
-                    </div>
-                )}
              </div>
 
-             <div className={marginClass}> <SectionTitle title="Experience" /> <div className={spacingClass}> {safeExperience.map((exp) => ( <div key={exp.id}> <div className="flex justify-between items-baseline"> <h3 className="font-bold text-[0.875em]">{exp.role}</h3> <span className="text-[0.75em] text-slate-500 font-mono">{exp.duration}</span> </div> <div className={`text-[0.75em] font-semibold ${theme.accent} mb-[0.25em]`}>{exp.company}</div> <ul className="list-disc list-outside ml-[1em] space-y-[0.25em]"> {(exp.points || []).map((pt, i) => ( <li key={i} className="text-[0.875em] text-slate-700 pl-1 marker:text-slate-400">{pt}</li> ))} </ul> </div> ))} </div> </div>
+             <div className={marginClass}> <SectionTitle title="Experience" /> <div className={spacingClass}> {safeExperience.map((exp) => ( <div key={exp.id}> <div className="flex justify-between items-baseline"> <h3 className="font-bold text-[0.875em]">{exp.role}</h3> <span className="text-[0.75em] text-slate-500 font-mono">{exp.duration}</span> </div> <div className={`text-[0.75em] font-semibold ${theme.accent} mb-[0.25em]`}>{exp.company}</div> <ul className="list-disc list-outside ml-[1em] space-y-[0.25em]"> {(exp.points || []).map((pt, i) => ( <li key={i} className="text-[0.875em] text-slate-700 pl-1 marker:text-slate-400"><RenderText text={pt} /></li> ))} </ul> </div> ))} </div> </div>
              
-             {/* Standard Layout: Projects */}
              {safeProjects.length > 0 && (
                  <div className={marginClass}>
                     <SectionTitle title="Projects" />
@@ -250,11 +222,10 @@ const UniversalRenderer: React.FC<{ data: ResumeData; config: TemplateConfig; sp
                         {safeProjects.map((proj) => (
                             <div key={proj.id} className="mb-[1em]">
                                 <div className="flex justify-between items-baseline">
-                                    <h3 className="font-bold text-[0.875em]">{proj.title}</h3>
-                                    {proj.link && <span className="text-[0.75em] text-indigo-500">{proj.link}</span>}
+                                    <h3 className="font-bold text-[0.875em]"><LinkText text={proj.title} url={proj.link} /></h3>
                                 </div>
                                 <ul className="list-disc list-outside ml-[1em] space-y-[0.25em]">
-                                    {(proj.points || []).map((pt, i) => (<li key={i} className="text-[0.875em] text-slate-700 pl-1 marker:text-slate-400">{pt}</li>))}
+                                    {(proj.points || []).map((pt, i) => (<li key={i} className="text-[0.875em] text-slate-700 pl-1 marker:text-slate-400"><RenderText text={pt} /></li>))}
                                 </ul>
                             </div>
                         ))}
@@ -262,104 +233,106 @@ const UniversalRenderer: React.FC<{ data: ResumeData; config: TemplateConfig; sp
                  </div>
              )}
 
-             <div className={marginClass}> <SectionTitle title="Education" /> <div className="grid grid-cols-1 gap-[1em]"> {safeEducation.map((edu, i) => ( <div key={i} className="text-[0.875em]"> <div className="flex justify-between"> <div> <span className="font-bold">{edu.school}</span> - {edu.degree} </div> <div className="text-slate-500 text-[0.75em]">{edu.year}</div> </div> {edu.gpa && <div className="text-[0.75em] text-slate-500 mt-1">GPA: {edu.gpa}</div>} {edu.honors && <div className="text-[0.75em] text-slate-500 italic mt-0.5">{edu.honors}</div>}</div> ))} </div> </div>
-             
-             {/* Standard Layout: Certifications */}
-             {safeCertifications.length > 0 && (
-                 <div className={marginClass}>
-                     <SectionTitle title="Certifications" />
-                     <div className="flex flex-wrap gap-x-6 gap-y-2">
-                         {safeCertifications.map((cert, i) => (
-                             <div key={i} className="text-[0.875em]">
-                                 <span className="font-bold">{cert.name}</span> 
-                                 <span className="text-slate-500 text-[0.75em]"> — {cert.issuer} ({cert.date})</span>
-                             </div>
-                         ))}
-                     </div>
-                 </div>
-             )}
-
-             {/* Standard Layout: Activities */}
-             {safeActivities.length > 0 && (
-                 <div className={marginClass}>
-                     <SectionTitle title="Leadership & Activities" />
-                     <div className={spacingClass}>
-                         {safeActivities.map((act) => (
-                             <div key={act.id} className="mb-[0.5em]">
-                                 <div className="flex justify-between items-baseline">
-                                     <h3 className="font-bold text-[0.875em]">{act.role}</h3>
-                                     <span className="text-[0.75em] text-slate-500 font-mono">{act.duration}</span>
-                                 </div>
-                                 <div className={`text-[0.75em] font-semibold ${theme.accent} mb-[0.25em]`}>{act.company}</div>
-                                 <ul className="list-disc list-outside ml-[1em] space-y-[0.25em]">
-                                     {(act.points || []).map((pt, i) => (<li key={i} className="text-[0.875em] text-slate-700 pl-1 marker:text-slate-400">{pt}</li>))}
-                                 </ul>
-                             </div>
-                         ))}
-                     </div>
-                 </div>
-             )}
+             <div className={marginClass}> 
+                <SectionTitle title="Education" /> 
+                <div className="grid grid-cols-1 gap-[1em]"> 
+                    {safeEducation.map((edu, i) => ( 
+                        <div key={i} className="text-[0.875em]"> 
+                            <div className="flex justify-between"> 
+                                <div> <span className="font-bold">{edu.school}</span> - {edu.degree} </div> 
+                                <div className="text-slate-500 text-[0.75em]">{edu.year}</div> 
+                            </div> 
+                            {edu.gpa && <div className="text-[0.75em] text-slate-500 mt-1">GPA: <RenderText text={edu.gpa} /></div>} 
+                        </div> 
+                    ))} 
+                </div> 
+             </div>
           </>
         )}
     </div>
   );
 };
 
-const TemplateCard: React.FC<{ config: TemplateConfig; isActive: boolean; onSelect: (id: string) => void; previewData: ResumeData; fontSize: number; }> = ({ config, isActive, onSelect, previewData, fontSize }) => {
-  // Use a more complete subset of actual user data for the preview to avoid empty spaces
-  const displayData: ResumeData = {
-    ...previewData,
-    fullName: (previewData.fullName && previewData.fullName.trim()) || "Your Name",
-    title: (previewData.title && previewData.title.trim()) || "Job Title",
-    summary: (previewData.summary && previewData.summary.length > 150) ? previewData.summary.substring(0, 150) + "..." : (previewData.summary || "Professional summary..."),
-    // Take up to 2 items to fill the preview space nicely
-    experience: previewData.experience?.length > 0 ? previewData.experience.slice(0, 2) : [{ id: '1', role: 'Role', company: 'Company', duration: 'Date', points: ['Achievement 1', 'Achievement 2'] }],
-    education: previewData.education?.length > 0 ? previewData.education.slice(0, 1) : [{ id: 'ed1', degree: 'Degree', school: 'University', year: '2024' }],
-    skills: previewData.skills?.length > 0 ? previewData.skills.slice(0, 6) : ["Skill 1", "Skill 2", "Skill 3"],
-    socialLinks: previewData.socialLinks || [],
-    projects: previewData.projects?.slice(0, 1) || [], 
-    activities: [], 
-    certifications: [], 
-    softSkills: previewData.softSkills?.slice(0, 3) || []
-  };
+// SIMPLIFIED VISUAL THUMBNAIL
+const TemplateThumbnail: React.FC<{ config: TemplateConfig }> = ({ config }) => {
+    const theme = COLORS[config.color];
+    const isSidebar = config.layout === 'tech';
+    const isCentered = config.layout === 'modern' || config.layout === 'minimal';
+    
+    return (
+        <div className="w-full h-full bg-white p-2 text-[4px] leading-tight select-none overflow-hidden relative border border-slate-100 rounded-sm">
+            {isSidebar ? (
+                <div className="flex h-full gap-1">
+                    <div className={`w-1/3 h-full rounded-sm opacity-20 ${theme.thumb}`}></div>
+                    <div className="w-2/3 h-full flex flex-col gap-1">
+                        <div className={`h-2 w-3/4 rounded-sm ${theme.thumb} opacity-80 mb-1`}></div>
+                        <div className="h-1 w-full bg-slate-200 rounded-sm"></div>
+                        <div className="h-1 w-full bg-slate-200 rounded-sm"></div>
+                        <div className="h-1 w-2/3 bg-slate-200 rounded-sm mb-2"></div>
+                        <div className="h-1 w-1/2 bg-slate-300 rounded-sm"></div>
+                        <div className="h-1 w-full bg-slate-200 rounded-sm"></div>
+                    </div>
+                </div>
+            ) : (
+                <div className="flex flex-col gap-1.5 h-full">
+                    <div className={`flex flex-col ${isCentered ? 'items-center' : 'items-start'} mb-1`}>
+                        <div className={`h-2.5 w-1/2 rounded-sm ${theme.thumb} mb-0.5`}></div>
+                        <div className="h-1 w-1/3 bg-slate-300 rounded-sm"></div>
+                    </div>
+                    {[1, 2, 3].map(i => (
+                        <div key={i} className="flex flex-col gap-0.5">
+                            <div className="h-1 w-1/4 bg-slate-300 rounded-sm"></div>
+                            <div className="h-0.5 w-full bg-slate-100 rounded-sm"></div>
+                            <div className="h-0.5 w-full bg-slate-100 rounded-sm"></div>
+                            <div className="h-0.5 w-2/3 bg-slate-100 rounded-sm"></div>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-white via-transparent to-transparent opacity-50"></div>
+        </div>
+    );
+};
 
+const TemplateCard: React.FC<{ config: TemplateConfig; isActive: boolean; onSelect: (id: string) => void; }> = ({ config, isActive, onSelect }) => {
   return (
-    <div onClick={() => onSelect(config.id)} className={`cursor-pointer group relative rounded-xl border transition-all duration-300 overflow-hidden hover:shadow-xl hover:scale-[1.02] flex flex-col h-full bg-white ${isActive ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200 hover:border-indigo-300'}`}>
-      <div className="flex-1 bg-slate-100 relative overflow-hidden h-72 w-full">
-         <div className="absolute top-0 left-1/2 transform -translate-x-1/2 mt-4 origin-top scale-[0.35] pointer-events-none">
-            <div className="shadow-lg bg-white" style={{ width: '210mm', minHeight: '297mm', fontSize: '12pt' }}>
-                <UniversalRenderer data={displayData} config={config} spacing="compact" />
-            </div>
+    <div onClick={() => onSelect(config.id)} className={`cursor-pointer group relative rounded-xl border transition-all duration-300 overflow-hidden hover:shadow-xl flex flex-col h-full bg-white ${isActive ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200 hover:border-indigo-300'}`}>
+      <div className="flex-1 bg-slate-50 relative overflow-hidden p-4">
+         <div className="w-full h-full shadow-md transform group-hover:scale-105 transition-transform duration-500">
+            <TemplateThumbnail config={config} />
          </div>
-         <div className="absolute bottom-0 left-0 w-full h-16 bg-gradient-to-t from-white via-white/60 to-transparent z-10"></div>
       </div>
-      <div className="p-4 bg-white border-t border-slate-100 relative z-20">
+      <div className="p-3 bg-white border-t border-slate-100 relative z-20">
         <div className="flex justify-between items-center mb-1">
-            <h3 className="font-bold text-slate-800 text-sm">{config.name}</h3>
-            {isActive && <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold">Active</span>}
+            <h3 className="font-bold text-slate-800 text-xs">{config.name}</h3>
+            {isActive && <div className="w-2 h-2 rounded-full bg-indigo-500"></div>}
         </div>
-        <p className="text-xs text-slate-500 line-clamp-1 mb-2">{config.description}</p>
-        
-        <div className="text-[10px] text-slate-500 border-t border-slate-100 pt-2 flex items-center gap-1 opacity-70">
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-            <span className="font-semibold truncate max-w-[120px]">{previewData.fullName || "User Name"}</span>
-            <span className="hidden sm:inline mx-1">•</span>
-            <span className="hidden sm:inline truncate max-w-[100px]">{previewData.title || "Job Title"}</span>
-        </div>
+        <p className="text-[10px] text-slate-500 line-clamp-2 leading-tight">{config.description}</p>
       </div>
     </div>
   );
 };
 
+const SectionAccordion: React.FC<{ title: string; children: React.ReactNode; isOpen: boolean; onToggle: () => void; darkMode: boolean }> = ({ title, children, isOpen, onToggle, darkMode }) => (
+    <div className={`rounded-xl border transition-all duration-300 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} ${isOpen ? 'ring-2 ring-indigo-500/10 shadow-lg' : 'hover:border-indigo-300'}`}>
+        <button onClick={onToggle} className="w-full flex justify-between items-center p-4 focus:outline-none group">
+            <span className={`font-bold text-sm uppercase tracking-wider flex items-center ${darkMode ? 'text-slate-300 group-hover:text-white' : 'text-slate-700 group-hover:text-indigo-600'}`}>
+                {title}
+            </span>
+            <span className={`transform transition-transform duration-300 ${isOpen ? 'rotate-180' : ''} ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+            </span>
+        </button>
+        <div className={`overflow-hidden transition-all duration-500 ease-in-out ${isOpen ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+            <div className="p-4 pt-0 border-t border-transparent">
+                {children}
+            </div>
+        </div>
+    </div>
+);
+
 const ResumeEditor: React.FC<ResumeEditorProps> = ({ initialData, jobDescription, onBack, darkMode, addToast, missingKeywords = [] }) => {
-  const [data, setData] = useState<ResumeData>({ 
-    ...initialData,
-    projects: initialData.projects || [],
-    certifications: initialData.certifications || [],
-    activities: initialData.activities || [],
-    softSkills: initialData.softSkills || [],
-    socialLinks: initialData.socialLinks || []
-  });
+  const [data, setData] = useState<ResumeData>({ ...initialData, projects: initialData.projects || [], certifications: initialData.certifications || [], activities: initialData.activities || [], softSkills: initialData.softSkills || [], socialLinks: initialData.socialLinks || [] });
   const [activeTemplateId, setActiveTemplateId] = useState<string>('modern-blue');
   const previewRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -373,211 +346,88 @@ const ResumeEditor: React.FC<ResumeEditorProps> = ({ initialData, jobDescription
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showOptimizationBanner, setShowOptimizationBanner] = useState(true);
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
-  const [lastSaved, setLastSaved] = useState<Date>(new Date());
   const [isCheckingScore, setIsCheckingScore] = useState(false);
   const [currentScore, setCurrentScore] = useState<number | null>(null);
   const [scoreFeedback, setScoreFeedback] = useState<string | null>(null);
   const [isImproving, setIsImproving] = useState<string | null>(null);
   const [mobileTab, setMobileTab] = useState<'editor' | 'preview'>('editor');
-  
-  // LinkedIn Modal State
+  const [diffMode, setDiffMode] = useState(false);
   const [showLinkedInModal, setShowLinkedInModal] = useState(false);
   const [linkedInText, setLinkedInText] = useState('');
   const [isImportingLinkedIn, setIsImportingLinkedIn] = useState(false);
-  
-  // Custom Link State
   const [customLinkUrl, setCustomLinkUrl] = useState('');
   const [customLinkPlatform, setCustomLinkPlatform] = useState('');
 
+  // Accordion State
+  const [sectionsOpen, setSectionsOpen] = useState({
+      personal: true,
+      experience: true,
+      education: false,
+      projects: false,
+      skills: false,
+      certifications: false,
+      activities: false
+  });
+
+  const toggleSection = (section: keyof typeof sectionsOpen) => setSectionsOpen(prev => ({ ...prev, [section]: !prev[section] }));
   const activeTemplateConfig = TEMPLATE_GALLERY.find(t => t.id === activeTemplateId) || TEMPLATE_GALLERY[0];
 
   useEffect(() => { const timer = setTimeout(() => setShowOptimizationBanner(false), 5000); return () => clearTimeout(timer); }, []);
   useEffect(() => { const handleClickOutside = (event: MouseEvent) => { if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) { setShowDownloadMenu(false); } }; document.addEventListener('mousedown', handleClickOutside); return () => document.removeEventListener('mousedown', handleClickOutside); }, []);
-  useEffect(() => { setLastSaved(new Date()); }, [data]);
 
   const handleCheckScore = async () => { setIsCheckingScore(true); try { const result = await reEvaluateResume(data, jobDescription); setCurrentScore(result.score); setScoreFeedback(result.feedback); addToast(`New Score: ${result.score}%`, result.score > 70 ? 'success' : 'info'); } catch (e) { addToast("Failed to check score.", "error"); } finally { setIsCheckingScore(false); } };
   const handleImproveSummary = async () => { setIsImproving('summary'); try { const newText = await improveSection(data.summary, 'summary', jobDescription); setData(prev => ({ ...prev, summary: newText })); addToast("Summary improved!", "success"); } catch (e) { addToast("AI busy, try again.", "error"); } finally { setIsImproving(null); } };
-  const handleImproveExpPoint = async (expId: string, pointIndex: number, text: string) => { setIsImproving(`${expId}-${pointIndex}`); try { const newText = await improveSection(text, 'experience', jobDescription); handleExpPointChange(expId, pointIndex, newText); addToast("Bullet point optimized!", "success"); } catch (e) { addToast("AI busy, try again.", "error"); } finally { setIsImproving(null); } };
+  const handleImproveExpPoint = async (expId: string, pointIndex: number, text: string) => { const loadingId = `${expId}-pt-${pointIndex}`; setIsImproving(loadingId); try { const newText = await improveSection(text, 'experience', jobDescription); handleExpPointChange(expId, pointIndex, newText); addToast("Bullet point optimized!", "success"); } catch (e) { addToast("AI busy, try again.", "error"); } finally { setIsImproving(null); } };
+  const handleImproveProjectPoint = async (projId: string, pointIndex: number, text: string) => { const loadingId = `${projId}-pt-${pointIndex}`; setIsImproving(loadingId); try { const newText = await improveSection(text, 'experience', jobDescription); handleProjectPointChange(projId, pointIndex, newText); addToast("Bullet point optimized!", "success"); } catch (e) { addToast("AI busy, try again.", "error"); } finally { setIsImproving(null); } };
 
+  // Data Handlers
   const handleBasicInfoChange = (field: keyof ResumeData, value: string) => { setData(prev => ({ ...prev, [field]: value })); };
   const handleExperienceChange = (id: string, field: string, value: string) => { setData(prev => ({ ...prev, experience: prev.experience.map(exp => exp.id === id ? { ...exp, [field]: value } : exp) })); };
   const handleExpPointChange = (expId: string, pointIndex: number, value: string) => { setData(prev => ({ ...prev, experience: prev.experience.map(exp => { if (exp.id === expId) { const newPoints = [...exp.points]; newPoints[pointIndex] = value; return { ...exp, points: newPoints }; } return exp; }) })); };
-  
-  const handleEducationChange = (id: string, field: string, value: string) => {
-    setData(prev => ({
-      ...prev,
-      education: (prev.education || []).map(edu => edu.id === id ? { ...edu, [field]: value } : edu)
-    }));
-  };
+  const handleEducationChange = (id: string, field: string, value: string) => { setData(prev => ({ ...prev, education: (prev.education || []).map(edu => edu.id === id ? { ...edu, [field]: value } : edu) })); };
+  const handleCertificationChange = (id: string, field: string, value: string) => { setData(prev => ({ ...prev, certifications: (prev.certifications || []).map(cert => cert.id === id ? { ...cert, [field]: value } : cert) })); };
+  const handleProjectChange = (id: string, field: string, value: string) => { setData(prev => ({ ...prev, projects: (prev.projects || []).map(proj => proj.id === id ? { ...proj, [field]: value } : proj) })); };
+  const handleProjectPointChange = (projId: string, pointIndex: number, value: string) => { setData(prev => ({ ...prev, projects: (prev.projects || []).map(proj => { if (proj.id === projId) { const newPoints = [...proj.points]; newPoints[pointIndex] = value; return { ...proj, points: newPoints }; } return proj; }) })); };
+  const handleActivityChange = (id: string, field: string, value: string) => { setData(prev => ({ ...prev, activities: (prev.activities || []).map(act => act.id === id ? { ...act, [field]: value } : act) })); };
+  const handleActivityPointChange = (actId: string, pointIndex: number, value: string) => { setData(prev => ({ ...prev, activities: (prev.activities || []).map(act => { if (act.id === actId) { const newPoints = [...act.points]; newPoints[pointIndex] = value; return { ...act, points: newPoints }; } return act; }) })); };
 
-  const handleCertificationChange = (id: string, field: string, value: string) => {
-    setData(prev => ({
-      ...prev,
-      certifications: (prev.certifications || []).map(cert => cert.id === id ? { ...cert, [field]: value } : cert)
-    }));
-  };
-
-  const handleProjectChange = (id: string, field: string, value: string) => {
-    setData(prev => ({
-      ...prev,
-      projects: (prev.projects || []).map(proj => proj.id === id ? { ...proj, [field]: value } : proj)
-    }));
-  };
-
-  const handleProjectPointChange = (projId: string, pointIndex: number, value: string) => {
-    setData(prev => ({
-      ...prev,
-      projects: (prev.projects || []).map(proj => {
-        if (proj.id === projId) {
-          const newPoints = [...proj.points];
-          newPoints[pointIndex] = value;
-          return { ...proj, points: newPoints };
-        }
-        return proj;
-      })
-    }));
-  };
-
-  const handleActivityChange = (id: string, field: string, value: string) => {
-    setData(prev => ({
-      ...prev,
-      activities: (prev.activities || []).map(act => act.id === id ? { ...act, [field]: value } : act)
-    }));
-  };
-
-  const handleActivityPointChange = (actId: string, pointIndex: number, value: string) => {
-    setData(prev => ({
-      ...prev,
-      activities: (prev.activities || []).map(act => {
-        if (act.id === actId) {
-          const newPoints = [...act.points];
-          newPoints[pointIndex] = value;
-          return { ...act, points: newPoints };
-        }
-        return act;
-      })
-    }));
-  };
-
-  const getWordCount = () => {
-    const text = [
-      data.fullName,
-      data.title,
-      data.summary,
-      ...(data.skills || []),
-      ...(data.softSkills || []),
-      ...(data.experience || []).flatMap(e => [e.role, e.company, ...(e.points || [])]),
-      ...(data.education || []).flatMap(e => [e.degree, e.school, e.coursework || '', e.honors || '']),
-      ...(data.projects || []).flatMap(p => [p.title, p.link, ...(p.points || [])]),
-      ...(data.activities || []).flatMap(a => [a.role, a.company, ...(a.points || [])]),
-      ...(data.certifications || []).flatMap(c => [c.name, c.issuer])
-    ].join(' ');
-    return text.trim().split(/\s+/).filter(w => w.length > 0).length;
-  };
-
-  const moveItem = (section: keyof ResumeData, index: number, direction: 'up' | 'down') => { const list = data[section] as any[]; if (!list) return; if (direction === 'up' && index > 0) { const newList = [...list]; [newList[index - 1], newList[index]] = [newList[index], newList[index - 1]]; setData(prev => ({ ...prev, [section]: newList })); } else if (direction === 'down' && index < list.length - 1) { const newList = [...list]; [newList[index + 1], newList[index]] = [newList[index], newList[index + 1]]; setData(prev => ({ ...prev, [section]: newList })); } };
-  
-  const deleteItem = (section: keyof ResumeData, index: number) => { 
-    const list = data[section];
-    if (Array.isArray(list)) {
-        const newList = list.filter((_, i) => i !== index);
-        setData(prev => ({ ...prev, [section]: newList }));
-    }
-  };
-  
-  const addItem = (section: 'experience' | 'projects' | 'activities' | 'certifications' | 'education') => { 
-    const id = Date.now().toString(); 
-    if (section === 'experience' || section === 'activities') { 
-      const newItem: ExperienceItem = { id, role: 'New Role', company: 'New Company', duration: 'Date', points: ['New bullet point'] }; 
-      setData(prev => ({ ...prev, [section]: [...prev[section], newItem] })); 
-    } else if (section === 'projects') { 
-      const newItem: ProjectItem = { id, title: 'New Project', link: '', points: ['Feature 1'] }; 
-      setData(prev => ({ ...prev, projects: [...prev.projects, newItem] })); 
-    } else if (section === 'certifications') { 
-      const newItem: CertificationItem = { id, name: 'Certification Name', issuer: 'Issuer', date: 'Date' }; 
-      setData(prev => ({ ...prev, certifications: [...(prev.certifications || []), newItem] })); 
-    } else if (section === 'education') {
-      const newItem: EducationItem = { id, degree: 'New Degree', school: 'New School', year: 'Year' };
-      setData(prev => ({ ...prev, education: [...(prev.education || []), newItem] }));
-    }
-  };
+  const deleteItem = (section: keyof ResumeData, index: number) => { const list = data[section]; if (Array.isArray(list)) { const newList = list.filter((_, i) => i !== index); setData(prev => ({ ...prev, [section]: newList })); } };
+  const addItem = (section: 'experience' | 'projects' | 'activities' | 'certifications' | 'education') => { const id = Date.now().toString(); if (section === 'experience' || section === 'activities') { const newItem: ExperienceItem = { id, role: '', company: '', duration: '', points: [''] }; setData(prev => ({ ...prev, [section]: [...prev[section], newItem] })); } else if (section === 'projects') { const newItem: ProjectItem = { id, title: '', link: '', points: [''] }; setData(prev => ({ ...prev, projects: [...prev.projects, newItem] })); } else if (section === 'certifications') { const newItem: CertificationItem = { id, name: '', issuer: '', date: '' }; setData(prev => ({ ...prev, certifications: [...(prev.certifications || []), newItem] })); } else if (section === 'education') { const newItem: EducationItem = { id, degree: '', school: '', year: '' }; setData(prev => ({ ...prev, education: [...(prev.education || []), newItem] })); } };
   const addSkill = () => { if (newSkill.trim()) { const skill = newSkill.trim(); setData(prev => ({ ...prev, skills: [...(prev.skills || []), skill] })); if (missingKeywords.some(k => k.toLowerCase() === skill.toLowerCase())) { addToast("Great! Keyword Match Found!", "success"); } setNewSkill(''); } };
   const removeSkill = (index: number) => { setData(prev => ({ ...prev, skills: (prev.skills || []).filter((_, i) => i !== index) })); };
   const addSoftSkill = () => { if (newSoftSkill.trim()) { const skill = newSoftSkill.trim(); setData(prev => ({ ...prev, softSkills: [...(prev.softSkills || []), skill] })); setNewSoftSkill(''); } };
   const removeSoftSkill = (index: number) => { setData(prev => ({ ...prev, softSkills: (prev.softSkills || []).filter((_, i) => i !== index) })); };
-  
-  // Link Handlers
-  const addSocialLink = (platform: string, url: string) => {
-      if (!url.trim()) return;
-      const newLink: SocialLink = { id: Date.now().toString(), platform, url };
-      setData(prev => ({ ...prev, socialLinks: [...(prev.socialLinks || []), newLink] }));
-  };
-  const removeSocialLink = (index: number) => {
-      setData(prev => ({ ...prev, socialLinks: (prev.socialLinks || []).filter((_, i) => i !== index) }));
-  };
+  const addSocialLink = (platform: string, url: string) => { if (!url.trim()) return; const newLink: SocialLink = { id: Date.now().toString(), platform, url }; setData(prev => ({ ...prev, socialLinks: [...(prev.socialLinks || []), newLink] })); };
+  const removeSocialLink = (index: number) => { setData(prev => ({ ...prev, socialLinks: (prev.socialLinks || []).filter((_, i) => i !== index) })); };
 
-  const handleLinkedInImport = async () => {
-    if (!linkedInText.trim()) return;
-    setIsImportingLinkedIn(true);
-    try {
-        const importedData = await parseLinkedInProfile(linkedInText);
-        setData(prev => ({
-            ...prev,
-            fullName: prev.fullName || importedData.fullName,
-            title: prev.title || importedData.title,
-            summary: prev.summary || importedData.summary,
-            skills: [...new Set([...(prev.skills || []), ...(importedData.skills || [])])],
-            experience: [...(prev.experience || []), ...(importedData.experience || [])],
-            education: [...(prev.education || []), ...(importedData.education || [])],
-        }));
-        addToast("LinkedIn data imported successfully!", "success");
-        setShowLinkedInModal(false);
-        setLinkedInText('');
-    } catch (e) {
-        console.error(e);
-        addToast("Failed to parse LinkedIn text.", "error");
-    } finally {
-        setIsImportingLinkedIn(false);
-    }
-  };
+  const handleLinkedInImport = async () => { if (!linkedInText.trim()) return; setIsImportingLinkedIn(true); try { const importedData = await parseLinkedInProfile(linkedInText); setData(prev => ({ ...prev, fullName: prev.fullName || importedData.fullName, title: prev.title || importedData.title, summary: prev.summary || importedData.summary, skills: [...new Set([...(prev.skills || []), ...(importedData.skills || [])])], experience: [...(prev.experience || []), ...(importedData.experience || [])], education: [...(prev.education || []), ...(importedData.education || [])], })); addToast("LinkedIn data imported successfully!", "success"); setShowLinkedInModal(false); setLinkedInText(''); } catch (e) { console.error(e); addToast("Failed to parse LinkedIn text.", "error"); } finally { setIsImportingLinkedIn(false); } };
 
-  const downloadPDF = async () => {
-    if (!previewRef.current) return;
-    setIsDownloading(true);
-    setShowDownloadMenu(false);
-    try {
-      const originalTransform = previewRef.current.style.transform;
-      previewRef.current.style.transform = 'scale(1)';
-      await new Promise(resolve => setTimeout(resolve, 100));
-      const canvas = await html2canvas(previewRef.current, { scale: 2, useCORS: true, logging: false, windowHeight: previewRef.current.scrollHeight, windowWidth: previewRef.current.scrollWidth, backgroundColor: '#ffffff' });
-      previewRef.current.style.transform = originalTransform;
-      const imgData = canvas.toDataURL('image/jpeg', 0.98);
-      const pdf = new jsPDF({ unit: 'in', format: 'letter', orientation: 'portrait', compress: true });
-      const imgWidth = 8.5;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
-      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
-      heightLeft -= 11;
-      while (heightLeft > 0) { position = heightLeft - imgHeight; pdf.addPage(); pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST'); heightLeft -= 11; }
-      const filename = `${data.fullName.replace(/\s+/g, '_')}_Resume.pdf`;
-      pdf.save(filename);
-      addToast("PDF Downloaded Successfully!", "success");
-    } catch (error: any) { console.error('PDF Generation Error:', error); addToast(`PDF Error: ${error.message || 'Unknown error'}`, "error"); } finally { if (previewRef.current) previewRef.current.style.transform = `scale(${viewZoom / 100})`; setIsDownloading(false); }
-  };
-
-  const downloadDOCX = () => { if (!previewRef.current) return; setShowDownloadMenu(false); const preHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Resume</title></head><body>"; const postHtml = "</body></html>"; const html = preHtml + previewRef.current.innerHTML + postHtml; const blob = new Blob(['\ufeff', html], { type: 'application/msword' }); const url = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html); const link = document.createElement('a'); link.href = url; link.download = `${data.fullName.replace(/\s+/g, '_')}_Resume.doc`; document.body.appendChild(link); link.click(); document.body.removeChild(link); addToast("DOCX Downloaded!", "success"); };
+  const downloadPDF = async () => { if (!previewRef.current) return; setIsDownloading(true); setShowDownloadMenu(false); try { const originalTransform = previewRef.current.style.transform; previewRef.current.style.transform = 'scale(1)'; await new Promise(resolve => setTimeout(resolve, 100)); const canvas = await html2canvas(previewRef.current, { scale: 2, useCORS: true, logging: false, windowHeight: previewRef.current.scrollHeight, windowWidth: previewRef.current.scrollWidth, backgroundColor: '#ffffff' }); previewRef.current.style.transform = originalTransform; const imgData = canvas.toDataURL('image/jpeg', 0.98); const pdf = new jsPDF({ unit: 'in', format: 'letter', orientation: 'portrait', compress: true }); const imgWidth = 8.5; const imgHeight = (canvas.height * imgWidth) / canvas.width; let heightLeft = imgHeight; let position = 0; pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST'); heightLeft -= 11; while (heightLeft > 0) { position = heightLeft - imgHeight; pdf.addPage(); pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST'); heightLeft -= 11; } pdf.save(`${data.fullName.replace(/\s+/g, '_')}_Resume.pdf`); addToast("PDF Downloaded Successfully!", "success"); } catch (error: any) { console.error('PDF Generation Error:', error); addToast(`PDF Error: ${error.message || 'Unknown error'}`, "error"); } finally { if (previewRef.current) previewRef.current.style.transform = `scale(${viewZoom / 100})`; setIsDownloading(false); } };
+  const downloadDOCX = () => { if (!previewRef.current) return; setShowDownloadMenu(false); const preHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Resume</title></head><body>"; const postHtml = "</body></html>"; const html = preHtml + previewRef.current.innerHTML + postHtml; const link = document.createElement('a'); link.href = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html); link.download = `${data.fullName.replace(/\s+/g, '_')}_Resume.doc`; document.body.appendChild(link); link.click(); document.body.removeChild(link); addToast("DOCX Downloaded!", "success"); };
+  const downloadJSON = () => { setShowDownloadMenu(false); const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2)); const downloadAnchorNode = document.createElement('a'); downloadAnchorNode.setAttribute("href", dataStr); downloadAnchorNode.setAttribute("download", `${data.fullName.replace(/\s+/g, '_')}_Resume.json`); document.body.appendChild(downloadAnchorNode); downloadAnchorNode.click(); downloadAnchorNode.remove(); addToast("JSON Downloaded!", "success"); };
+  const downloadLatex = () => { setShowDownloadMenu(false); try { const latex = generateLatex(data); const dataStr = "data:text/plain;charset=utf-8," + encodeURIComponent(latex); const downloadAnchorNode = document.createElement('a'); downloadAnchorNode.setAttribute("href", dataStr); downloadAnchorNode.setAttribute("download", `${data.fullName.replace(/\s+/g, '_')}_Resume.tex`); document.body.appendChild(downloadAnchorNode); downloadAnchorNode.click(); downloadAnchorNode.remove(); addToast("LaTeX Downloaded!", "success"); } catch(e) { addToast("Failed to generate LaTeX", "error"); } };
 
   return (
     <div className={`flex flex-col h-screen overflow-hidden relative ${darkMode ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-900'}`}>
-      {/* Mobile Tab Bar */}
-      <div className="md:hidden flex border-b bg-white dark:bg-slate-800 z-20">
-         <button onClick={() => setMobileTab('editor')} className={`flex-1 py-3 text-sm font-bold transition-colors ${mobileTab === 'editor' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 dark:text-slate-400'}`}>Editor</button>
-         <button onClick={() => setMobileTab('preview')} className={`flex-1 py-3 text-sm font-bold transition-colors ${mobileTab === 'preview' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 dark:text-slate-400'}`}>Preview</button>
-      </div>
-
-      {showOptimizationBanner && ( <div className="absolute top-16 left-0 w-full z-40 flex justify-center pointer-events-none"> <div className="bg-emerald-600 text-white px-6 py-2 rounded-b-lg shadow-lg animate-bounce text-sm font-medium pointer-events-auto"> ✨ AI has pre-optimized your resume content below! Review & Edit. <button onClick={() => setShowOptimizationBanner(false)} className="ml-4 opacity-70 hover:opacity-100">×</button> </div> </div> )}
       
+      {/* Template Gallery Modal */}
+      {showTemplateModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/90 flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-7xl h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-scale-in">
+            <div className="p-6 border-b flex justify-between items-center bg-slate-50">
+              <div> <h2 className="text-2xl font-bold text-slate-800">Template Gallery</h2> <p className="text-slate-500 text-sm">Choose from {TEMPLATE_GALLERY.length} ATS-optimized designs.</p> </div>
+              <button onClick={() => setShowTemplateModal(false)} className="bg-slate-200 hover:bg-slate-300 rounded-full p-2 transition-colors hover:rotate-90 duration-300"> <svg className="w-6 h-6 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg> </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-8 bg-slate-100">
+               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                {TEMPLATE_GALLERY.map((template, idx) => ( <div key={template.id} className="opacity-0 animate-slide-up h-48 sm:h-56" style={{ animationDelay: `${idx * 0.05}s` }}> <TemplateCard config={template} isActive={activeTemplateId === template.id} onSelect={(id) => { setActiveTemplateId(id); setShowTemplateModal(false); addToast(`${template.name} applied!`, 'success'); }} /> </div> ))}
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LinkedIn Import Modal */}
       {showLinkedInModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
             <div className={`rounded-2xl shadow-2xl w-full max-w-lg p-6 animate-scale-in border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
@@ -603,309 +453,245 @@ const ResumeEditor: React.FC<ResumeEditorProps> = ({ initialData, jobDescription
         </div>
       )}
 
-      {/* Floating Download Button (Mobile/Desktop) */}
-      <div className="fixed bottom-12 right-8 z-50"> <button onClick={downloadPDF} disabled={isDownloading} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-full p-4 shadow-2xl transition-transform hover:scale-110 active:scale-95 flex items-center justify-center animate-bounce" title="Download PDF"> {isDownloading ? ( <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> ) : ( <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg> )} </button> </div>
-
-      {showTemplateModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/90 flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-7xl h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-scale-in">
-            <div className="p-6 border-b flex justify-between items-center bg-slate-50">
-              <div> <h2 className="text-2xl font-bold text-slate-800">Template Gallery</h2> <p className="text-slate-500 text-sm">Choose from {TEMPLATE_GALLERY.length} ATS-optimized designs.</p> </div>
-              <button onClick={() => setShowTemplateModal(false)} className="bg-slate-200 hover:bg-slate-300 rounded-full p-2 transition-colors hover:rotate-90 duration-300"> <svg className="w-6 h-6 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg> </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-8 bg-slate-100">
-               <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-8">
-                {TEMPLATE_GALLERY.map((template, idx) => ( <div key={template.id} className="opacity-0 animate-slide-up" style={{ animationDelay: `${idx * 0.05}s` }}> <TemplateCard config={template} isActive={activeTemplateId === template.id} onSelect={(id) => { setActiveTemplateId(id); setShowTemplateModal(false); addToast(`${template.name} applied!`, 'success'); }} previewData={data} fontSize={fontSize} /> </div> ))}
-               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Main Toolbar */}
       <div className={`h-16 border-b flex items-center justify-between px-4 md:px-6 flex-shrink-0 z-10 shadow-sm transition-colors ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
         <div className="flex items-center space-x-2 md:space-x-4">
           <button onClick={onBack} className={`flex items-center text-sm font-medium transition-colors hover:-translate-x-1 ${darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-700'}`}> <svg className="w-5 h-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg> <span className="hidden md:inline">Back</span> </button>
           <div className={`h-6 w-px ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`}></div>
           <button onClick={() => setShowTemplateModal(true)} className={`flex items-center px-3 md:px-4 py-2 rounded-lg text-sm font-bold transition-all hover:shadow-md ${darkMode ? 'bg-slate-700 text-indigo-300 border-slate-600 hover:bg-slate-600' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'}`}> <svg className="w-4 h-4 mr-0 md:mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> <span className="hidden md:inline">Template</span> </button>
+          
+          <button onClick={() => setDiffMode(!diffMode)} className={`hidden md:flex text-xs px-2 py-1 rounded hover:scale-105 transition-transform items-center gap-1 ${diffMode ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 dark:bg-slate-700'}`} title="Highlights missing keywords"> <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg> {diffMode ? 'Diff On' : 'Diff Off'} </button>
+
+          {/* Mobile Tab Switcher */}
+          <div className="flex md:hidden bg-slate-100 dark:bg-slate-700 rounded-lg p-1 ml-2">
+             <button onClick={() => setMobileTab('editor')} className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${mobileTab === 'editor' ? 'bg-white dark:bg-slate-600 shadow-sm text-indigo-600' : 'text-slate-500'}`}>Edit</button>
+             <button onClick={() => setMobileTab('preview')} className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${mobileTab === 'preview' ? 'bg-white dark:bg-slate-600 shadow-sm text-indigo-600' : 'text-slate-500'}`}>View</button>
+          </div>
+
           <div className="hidden lg:flex items-center space-x-6 border-l pl-6 ml-2 h-8 border-gray-300 dark:border-gray-700">
              <div className="flex flex-col"> <span className="text-[10px] font-mono uppercase opacity-50 mb-1">Font Size: {fontSize}pt</span> <input type="range" min="8" max="14" step="0.5" value={fontSize} onChange={(e) => setFontSize(parseFloat(e.target.value))} className="w-24 h-1.5 bg-indigo-200 rounded-lg appearance-none cursor-pointer hover:bg-indigo-300 transition-colors" /> </div>
              <div className="flex flex-col"> <span className="text-[10px] font-mono uppercase opacity-50 mb-1">View Zoom: {viewZoom}%</span> <input type="range" min="50" max="150" step="10" value={viewZoom} onChange={(e) => setViewZoom(parseInt(e.target.value))} className="w-24 h-1.5 bg-indigo-200 rounded-lg appearance-none cursor-pointer hover:bg-indigo-300 transition-colors" /> </div>
           </div>
-          <button onClick={() => setFocusMode(!focusMode)} className={`hidden md:flex text-xs px-2 py-1 rounded hover:scale-105 transition-transform items-center gap-1 ${focusMode ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 dark:bg-slate-700'}`} title="Focus Mode"> <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 4l-5-5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg> {focusMode ? 'Exit Focus' : 'Focus'} </button>
         </div>
+        
         <div className="relative" ref={dropdownRef}>
           <button onClick={() => setShowDownloadMenu(!showDownloadMenu)} disabled={isDownloading} className="flex items-center px-4 md:px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 shadow-sm transition-all active:scale-95"> {isDownloading ? '...' : 'Download'} <svg className={`ml-2 w-4 h-4 transition-transform ${showDownloadMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg> </button>
           {showDownloadMenu && (
-            <div className={`absolute right-0 mt-2 w-48 rounded-xl shadow-xl border py-1 z-50 overflow-hidden animate-scale-in origin-top-right ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
-               <button onClick={downloadPDF} className={`w-full text-left px-4 py-3 text-sm flex items-center transition-colors ${darkMode ? 'text-slate-300 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50'}`}> <span className="bg-red-100 text-red-600 p-1.5 rounded mr-3"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 2H7a2 2 0 00-2 2v15a2 2 0 002 2z" /></svg></span> <div> <span className="font-bold block">PDF Document</span> <span className="text-xs opacity-70">Best for applications</span> </div> </button>
-               <div className={`h-px mx-4 ${darkMode ? 'bg-slate-700' : 'bg-slate-100'}`}></div>
-               <button onClick={downloadDOCX} className={`w-full text-left px-4 py-3 text-sm flex items-center transition-colors ${darkMode ? 'text-slate-300 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50'}`}> <span className="bg-blue-100 text-blue-600 p-1.5 rounded mr-3"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg></span> <div> <span className="font-bold block">Word Document</span> <span className="text-xs opacity-70">Editable format</span> </div> </button>
-            </div>
+             <div className={`absolute right-0 mt-2 w-56 rounded-xl shadow-xl border py-1 z-50 overflow-hidden animate-scale-in origin-top-right ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                <button onClick={downloadPDF} className={`w-full text-left px-4 py-3 text-sm flex items-center transition-colors ${darkMode ? 'text-slate-300 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50'}`}> <span className="bg-red-100 text-red-600 p-1.5 rounded mr-3">📄</span> <div> <span className="font-bold block">PDF Document</span> </div> </button>
+                <button onClick={downloadDOCX} className={`w-full text-left px-4 py-3 text-sm flex items-center transition-colors ${darkMode ? 'text-slate-300 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50'}`}> <span className="bg-blue-100 text-blue-600 p-1.5 rounded mr-3">📝</span> <div> <span className="font-bold block">Word Document</span> </div> </button>
+                <button onClick={downloadJSON} className={`w-full text-left px-4 py-3 text-sm flex items-center transition-colors ${darkMode ? 'text-slate-300 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50'}`}> <span className="bg-amber-100 text-amber-600 p-1.5 rounded mr-3">⚙️</span> <div> <span className="font-bold block">JSON Data</span> </div> </button>
+                <button onClick={downloadLatex} className={`w-full text-left px-4 py-3 text-sm flex items-center transition-colors ${darkMode ? 'text-slate-300 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50'}`}> <span className="bg-green-100 text-green-600 p-1.5 rounded mr-3">🔢</span> <div> <span className="font-bold block">LaTeX Source</span> </div> </button>
+             </div>
           )}
         </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden relative">
         {/* Editor Column */}
-        <div className={`border-r overflow-y-auto p-4 md:p-6 shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-10 flex flex-col transition-all duration-500 ease-in-out ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} ${focusMode ? 'w-0 opacity-0 overflow-hidden px-0 border-r-0' : 'md:w-1/3 opacity-100'} ${mobileTab === 'editor' ? 'w-full block' : 'hidden md:block'}`}>
-           
-          <div className="mb-6 relative group h-auto">
-             <div className="absolute inset-0 rounded-xl overflow-hidden z-0">
-               {(currentScore !== null && currentScore >= 70) && (
-                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[200%] h-[200%] bg-[conic-gradient(transparent_0deg,transparent_20deg,#6366f1_100deg,#ec4899_200deg,transparent_360deg)] animate-border-spin opacity-100"></div>
-               )}
-             </div>
-             <div className={`relative z-10 m-[1.5px] p-5 rounded-[10px] shadow-sm flex flex-col overflow-hidden transition-all duration-300 ${darkMode ? 'bg-slate-900' : 'bg-white'}`}>
-                 <div className="flex justify-between items-start mb-3 relative z-10">
-                    <div> <h3 className={`font-bold text-lg ${darkMode ? 'text-white' : 'text-slate-800'}`}>Live ATS Pulse</h3> <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Real-time resume health check</p> </div>
-                    <div className="ml-4"> <MiniCircularScore score={currentScore || 0} darkMode={darkMode} /> </div>
-                 </div>
-                 <div className={`p-3 rounded-lg text-xs font-medium mb-3 border-l-2 ${currentScore && currentScore > 70 ? 'bg-emerald-50 text-emerald-800 border-emerald-500' : 'bg-amber-50 text-amber-800 border-amber-500'}`}> {scoreFeedback || "Click 'Run Scan' to check your current edits against the JD."} </div>
-                 <button onClick={handleCheckScore} disabled={isCheckingScore} className="w-full py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-lg hover:shadow-lg transition-all transform active:scale-95 text-sm flex items-center justify-center"> {isCheckingScore ? ( <> <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Scanning... </> ) : (currentScore ? 'Re-Analyze Changes' : 'Run Live Scan')} </button>
-             </div>
-          </div>
-
-          <div className="flex justify-between items-center mb-6">
-            <h3 className={`text-sm font-bold uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-900'}`}> Editor <span className="text-xs opacity-50 ml-1">({getWordCount()} words)</span> </h3>
-            <div className={`flex items-center rounded-lg p-1 ${darkMode ? 'bg-slate-700' : 'bg-slate-100'}`}>
-               <button onClick={() => setSpacing('compact')} className={`px-2 py-1 text-xs rounded transition-all ${spacing === 'compact' ? 'bg-white text-slate-900 shadow' : 'text-slate-500'}`}>Compact</button>
-               <button onClick={() => setSpacing('normal')} className={`px-2 py-1 text-xs rounded transition-all ${spacing === 'normal' ? 'bg-white text-slate-900 shadow' : 'text-slate-500'}`}>Normal</button>
-               <button onClick={() => setSpacing('open')} className={`px-2 py-1 text-xs rounded transition-all ${spacing === 'open' ? 'bg-white text-slate-900 shadow' : 'text-slate-500'}`}>Open</button>
-            </div>
-          </div>
-           
-          <div className="space-y-6 pb-20">
-            <div className="mb-6">
-                <button 
-                    onClick={() => setShowLinkedInModal(true)}
-                    className="w-full py-2 border-2 border-dashed border-blue-400 text-blue-500 font-bold rounded-lg hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
-                >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
-                    Import from LinkedIn
-                </button>
-            </div>
-
-            <div className="space-y-4">
-              <label className="block text-xs font-semibold uppercase opacity-60">Personal Info</label>
-              <input value={data.fullName} onChange={(e) => handleBasicInfoChange('fullName', e.target.value)} className={`w-full p-3 border rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${darkMode ? 'bg-slate-700 border-slate-600 text-white focus:bg-slate-600' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Full Name" />
-              <input value={data.title} onChange={(e) => handleBasicInfoChange('title', e.target.value)} className={`w-full p-3 border rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${darkMode ? 'bg-slate-700 border-slate-600 text-white focus:bg-slate-600' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Job Title" />
-               <input value={data.contactInfo} onChange={(e) => handleBasicInfoChange('contactInfo', e.target.value)} className={`w-full p-3 border rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${darkMode ? 'bg-slate-700 border-slate-600 text-white focus:bg-slate-600' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} placeholder="Email | Phone | Location" />
-            </div>
-            
-            <div>
-                <label className="block text-xs font-semibold uppercase mb-2 opacity-60">Social Links</label>
-                <div className="flex flex-wrap gap-2 mb-2">
-                    {['LinkedIn', 'GitHub', 'Portfolio'].map(p => (
-                        <button key={p} onClick={() => { setCustomLinkPlatform(p); setCustomLinkUrl(''); }} className={`px-3 py-1 text-xs rounded-full border transition-all ${customLinkPlatform === p ? 'bg-indigo-100 border-indigo-300 text-indigo-700 shadow-sm' : 'border-slate-300 text-slate-500 hover:bg-slate-100'}`}>
-                            + {p}
-                        </button>
-                    ))}
-                     <button onClick={() => { setCustomLinkPlatform('Custom'); setCustomLinkUrl(''); }} className={`px-3 py-1 text-xs rounded-full border transition-all ${customLinkPlatform === 'Custom' ? 'bg-indigo-100 border-indigo-300 text-indigo-700 shadow-sm' : 'border-slate-300 text-slate-500 hover:bg-slate-100'}`}>
-                            + Custom
+        <div className={`border-r overflow-y-auto p-4 md:p-6 shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-10 flex flex-col transition-all duration-500 ease-in-out ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} ${focusMode ? 'w-0 opacity-0 overflow-hidden px-0 border-r-0' : 'w-full lg:w-5/12 opacity-100'} ${mobileTab === 'editor' ? 'block' : 'hidden lg:block'}`}>
+           <div className="space-y-6 pb-20">
+             
+             {/* Personal Info Accordion */}
+             <SectionAccordion title="Personal Details" isOpen={sectionsOpen.personal} onToggle={() => toggleSection('personal')} darkMode={darkMode}>
+                 <div className="space-y-4">
+                    <button 
+                        onClick={() => setShowLinkedInModal(true)}
+                        className="w-full py-2 border-2 border-dashed border-blue-400 text-blue-500 font-bold rounded-lg hover:bg-blue-50 transition-colors flex items-center justify-center gap-2 mb-4"
+                    >
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
+                        Import from LinkedIn
                     </button>
-                </div>
-                
-                {customLinkPlatform && (
-                    <div className="flex gap-2 animate-fade-in mb-4">
-                        <input value={customLinkUrl} onChange={(e) => setCustomLinkUrl(e.target.value)} placeholder={`Enter ${customLinkPlatform} URL...`} className={`flex-1 p-2 rounded border text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-slate-300'}`} />
-                        <button onClick={() => { addSocialLink(customLinkPlatform, customLinkUrl); setCustomLinkPlatform(''); }} className="bg-indigo-500 text-white px-3 rounded text-sm font-bold hover:bg-indigo-600 transition-colors">Add</button>
-                    </div>
-                )}
 
-                <div className="space-y-2">
-                    {(data.socialLinks || []).map((link, index) => (
-                        <div key={index} className={`flex justify-between items-center p-2 rounded border shadow-sm ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
-                             <div className="flex items-center overflow-hidden">
-                                 <span className="text-xs font-bold uppercase w-16 flex-shrink-0 opacity-60 text-slate-500">{link.platform}</span>
-                                 <span className="text-xs truncate ml-2 text-indigo-500 underline">{link.url}</span>
-                             </div>
-                             <button onClick={() => removeSocialLink(index)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1 rounded transition-colors">
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                             </button>
+                    <input value={data.fullName} onChange={(e) => handleBasicInfoChange('fullName', e.target.value)} className={`w-full p-3 border rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-100 border-slate-300 text-slate-900'}`} placeholder="Full Name" />
+                    <input value={data.title} onChange={(e) => handleBasicInfoChange('title', e.target.value)} className={`w-full p-3 border rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-100 border-slate-300 text-slate-900'}`} placeholder="Job Title" />
+                    <input value={data.contactInfo} onChange={(e) => handleBasicInfoChange('contactInfo', e.target.value)} className={`w-full p-3 border rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-100 border-slate-300 text-slate-900'}`} placeholder="Email | Phone | Location" />
+                    
+                    <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
+                        <label className="block text-xs font-semibold uppercase opacity-60 mb-2">Social Links</label>
+                        <div className="flex gap-2 mb-3">
+                            <input 
+                                value={customLinkPlatform} 
+                                onChange={(e) => setCustomLinkPlatform(e.target.value)} 
+                                placeholder="Label (e.g. GitHub)" 
+                                className={`w-1/3 p-2 rounded border text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-slate-300'}`} 
+                            />
+                            <input 
+                                value={customLinkUrl} 
+                                onChange={(e) => setCustomLinkUrl(e.target.value)} 
+                                placeholder="URL" 
+                                className={`flex-1 p-2 rounded border text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-white border-slate-300'}`} 
+                            />
+                            <button onClick={() => { 
+                                if(customLinkUrl) {
+                                    const label = customLinkPlatform.trim() || 'Link';
+                                    addSocialLink(label, customLinkUrl); 
+                                    setCustomLinkUrl(''); 
+                                    setCustomLinkPlatform('');
+                                }
+                            }} className="bg-indigo-500 text-white px-3 rounded text-sm font-bold hover:bg-indigo-600">Add</button>
                         </div>
-                    ))}
-                </div>
-            </div>
-            
-            <div>
-              <div className="flex justify-between items-center mb-2"> 
-                <div className="flex items-center gap-2"> 
-                    <label className="block text-xs font-semibold uppercase opacity-60">Summary</label> 
-                    {isImproving === 'summary' && <span className="ml-2 text-indigo-500 text-xs animate-pulse font-medium flex items-center">✨ Optimizing...</span>}
-                    <CopyAction text={data.summary} darkMode={darkMode} /> 
-                </div> 
-                <button onClick={handleImproveSummary} disabled={isImproving === 'summary'} className="text-xs flex items-center text-indigo-500 font-medium hover:text-indigo-400 transition-colors"> {isImproving === 'summary' ? ( <svg className="animate-spin h-3 w-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> ) : ( <span className="mr-1">✨</span> )} {isImproving === 'summary' ? 'Fixing...' : 'Auto-Improve'} </button> </div>
-              <textarea value={data.summary} onChange={(e) => handleBasicInfoChange('summary', e.target.value)} className={`w-full p-3 border rounded-md text-sm h-32 resize-none outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${darkMode ? 'bg-slate-700 border-slate-600 text-white focus:bg-slate-600' : 'bg-slate-100 border-slate-300 text-slate-900 focus:bg-white'}`} />
-            </div>
-            
-            <div>
-              <label className="block text-xs font-semibold uppercase mb-2 opacity-60">Technical Skills</label>
-              <div className={`w-full p-3 border rounded-md min-h-[5rem] flex flex-wrap gap-2 transition-colors ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-slate-100 border-slate-300'}`}>
-                 {(data.skills || []).map((skill, index) => { const isMatch = missingKeywords.some(k => k.toLowerCase() === skill.toLowerCase()); return ( <span key={index} className={`px-2 py-1 rounded text-xs flex items-center animate-scale-in border ${isMatch ? 'bg-amber-100 text-amber-800 border-amber-300 shadow-sm' : 'bg-indigo-50 text-indigo-800 border-transparent'}`}> {isMatch && <span className="mr-1 text-amber-600">★</span>} {skill} <button onClick={() => removeSkill(index)} className="ml-2 hover:text-red-500 hover:scale-125 transition-transform">×</button> </span> ); })}
-                 <input value={newSkill} onChange={(e) => setNewSkill(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addSkill()} placeholder="Add skill + Enter" className={`bg-transparent outline-none text-sm min-w-[80px] flex-1 ${darkMode ? 'text-white' : 'text-slate-800'}`} />
-              </div>
-            </div>
-            
-            <div>
-              <label className="block text-xs font-semibold uppercase mb-2 opacity-60">Soft Skills</label>
-              <div className={`w-full p-3 border rounded-md min-h-[5rem] flex flex-wrap gap-2 transition-colors ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-slate-100 border-slate-300'}`}>
-                 {(data.softSkills || []).map((skill, index) => ( <span key={index} className="px-2 py-1 rounded text-xs flex items-center animate-scale-in border bg-emerald-50 text-emerald-800 border-transparent"> {skill} <button onClick={() => removeSoftSkill(index)} className="ml-2 hover:text-red-500 hover:scale-125 transition-transform">×</button> </span> ))}
-                 <input value={newSoftSkill} onChange={(e) => setNewSoftSkill(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addSoftSkill()} placeholder="Leadership, Teamwork..." className={`bg-transparent outline-none text-sm min-w-[80px] flex-1 ${darkMode ? 'text-white' : 'text-slate-800'}`} />
-              </div>
-            </div>
+                        {(data.socialLinks || []).map((link, index) => (
+                            <div key={index} className="flex justify-between items-center p-2 rounded border mb-2 text-sm bg-slate-50 dark:bg-slate-700/50">
+                                <span className="truncate flex-1 text-indigo-500">
+                                    <span className="font-bold text-slate-600 dark:text-slate-400 mr-2">{link.platform}:</span>
+                                    {link.url}
+                                </span>
+                                <button onClick={() => removeSocialLink(index)} className="text-red-400 hover:text-red-500 p-1">×</button>
+                            </div>
+                        ))}
+                    </div>
 
-            <div>
-               <div className="flex justify-between items-center mb-4"> 
-                   <label className="block text-xs font-semibold uppercase opacity-60">Experience</label> 
-                   <button onClick={() => addItem('experience')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button> 
-               </div>
-               {(data.experience || []).map((exp, index) => (
-                 <div key={exp.id} className={`p-4 rounded-lg border mb-4 shadow-sm relative group animate-slide-down ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
-                    {isImproving && isImproving.startsWith(exp.id) && (
-                        <div className="absolute top-0 right-0 p-2">
-                            <span className="text-[10px] bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300 px-2 py-1 rounded-full font-bold animate-pulse flex items-center gap-1 shadow-sm border border-indigo-200 dark:border-indigo-700">
-                                <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                Optimizing...
-                            </span>
-                        </div>
-                    )}
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                      <button onClick={() => moveItem('experience', index, 'up')} className={`p-1 rounded transition-colors ${darkMode ? 'hover:bg-slate-600 text-slate-400' : 'hover:bg-slate-200 text-slate-500'}`} title="Move Up"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" /></svg></button>
-                      <button onClick={() => moveItem('experience', index, 'down')} className={`p-1 rounded transition-colors ${darkMode ? 'hover:bg-slate-600 text-slate-400' : 'hover:bg-slate-200 text-slate-500'}`} title="Move Down"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg></button>
-                      <button onClick={() => deleteItem('experience', index)} className="p-1 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded transition-colors" title="Delete"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 mb-3">
-                      <input value={exp.role} onChange={(e) => handleExperienceChange(exp.id, 'role', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Role" />
-                      <input value={exp.company} onChange={(e) => handleExperienceChange(exp.id, 'company', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Company" />
-                    </div>
-                    <input value={exp.duration} onChange={(e) => handleExperienceChange(exp.id, 'duration', e.target.value)} className={`w-full p-2 border rounded text-sm mb-3 outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Duration (e.g. Jan 2020 - Present)" />
-                    <div className="space-y-2">
-                      {(exp.points || []).map((pt, i) => (
-                        <div key={i} className="flex gap-2 items-start group/point">
-                          <span className="mt-2 w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0"></span>
-                          <textarea value={pt} onChange={(e) => handleExpPointChange(exp.id, i, e.target.value)} rows={2} className={`flex-1 p-2 text-sm border-b border-transparent focus:border-indigo-300 outline-none resize-none bg-transparent ${darkMode ? 'text-slate-300 focus:bg-slate-800' : 'text-slate-700 focus:bg-slate-50'}`} />
-                          <div className="flex flex-col opacity-0 group-hover/point:opacity-100 transition-opacity">
-                             <button onClick={() => handleImproveExpPoint(exp.id, i, pt)} disabled={isImproving === `${exp.id}-${i}`} className="p-1 text-indigo-400 hover:text-indigo-600" title="Auto-Improve">{isImproving === `${exp.id}-${i}` ? <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 1010 10A10 10 0 0012 2z" opacity="0.2"/><path fill="currentColor" d="M12 2a10 10 0 0110 10" /></svg> : '✨'}</button>
-                             <button onClick={() => { const newPoints = [...exp.points]; newPoints.splice(i, 1); handleExperienceChange(exp.id, 'points', newPoints as any); }} className="p-1 text-slate-300 hover:text-red-500">×</button>
-                          </div>
-                        </div>
-                      ))}
-                      <button onClick={() => { const newPoints = [...exp.points, "New bullet point"]; handleExperienceChange(exp.id, 'points', newPoints as any); }} className="text-xs text-indigo-500 font-bold ml-4 hover:underline">+ Add Bullet</button>
+                    <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
+                       <div className="flex justify-between items-center mb-2"> 
+                         <label className="text-xs font-semibold uppercase opacity-60">Professional Summary</label> 
+                         <button onClick={handleImproveSummary} disabled={isImproving === 'summary'} className="text-xs flex items-center text-indigo-500 font-bold hover:text-indigo-400 transition-colors"> 
+                            {isImproving === 'summary' ? <svg className="animate-spin h-3 w-3 mr-1" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : '✨ Auto-Improve'}
+                         </button> 
+                       </div>
+                       <textarea value={data.summary} onChange={(e) => handleBasicInfoChange('summary', e.target.value)} className={`w-full p-3 border rounded-md text-sm h-32 resize-none outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${darkMode ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-100 border-slate-300 text-slate-900'}`} />
                     </div>
                  </div>
-               ))}
-            </div>
+             </SectionAccordion>
 
-            {/* Projects Section */}
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <label className="block text-xs font-semibold uppercase opacity-60">Projects</label>
-                <button onClick={() => addItem('projects')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button>
-              </div>
-              {(data.projects || []).map((proj, index) => (
-                <div key={proj.id} className={`p-4 rounded-lg border mb-4 shadow-sm relative group animate-slide-down ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
-                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                    <button onClick={() => moveItem('projects', index, 'up')} className={`p-1 rounded transition-colors ${darkMode ? 'hover:bg-slate-600 text-slate-400' : 'hover:bg-slate-200 text-slate-500'}`}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" /></svg></button>
-                    <button onClick={() => moveItem('projects', index, 'down')} className={`p-1 rounded transition-colors ${darkMode ? 'hover:bg-slate-600 text-slate-400' : 'hover:bg-slate-200 text-slate-500'}`}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg></button>
-                    <button onClick={() => deleteItem('projects', index)} className="p-1 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 mb-3">
-                    <input value={proj.title} onChange={(e) => handleProjectChange(proj.id, 'title', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Project Title" />
-                    <input value={proj.link} onChange={(e) => handleProjectChange(proj.id, 'link', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Link / Tech Stack" />
-                  </div>
-                  <div className="space-y-2">
-                    {(proj.points || []).map((pt, i) => (
-                      <div key={i} className="flex gap-2 items-start group/point">
-                        <span className="mt-2 w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0"></span>
-                        <textarea value={pt} onChange={(e) => handleProjectPointChange(proj.id, i, e.target.value)} rows={2} className={`flex-1 p-2 text-sm border-b border-transparent focus:border-indigo-300 outline-none resize-none bg-transparent ${darkMode ? 'text-slate-300 focus:bg-slate-800' : 'text-slate-700 focus:bg-slate-50'}`} />
-                        <button onClick={() => { const newPoints = [...proj.points]; newPoints.splice(i, 1); handleProjectChange(proj.id, 'points', newPoints as any); }} className="opacity-0 group-hover/point:opacity-100 p-1 text-slate-300 hover:text-red-500 transition-opacity">×</button>
-                      </div>
+             {/* Experience Accordion */}
+             <SectionAccordion title="Experience" isOpen={sectionsOpen.experience} onToggle={() => toggleSection('experience')} darkMode={darkMode}>
+                <div className="space-y-6">
+                    {data.experience.map((exp, i) => (
+                        <div key={exp.id} className={`p-4 rounded-lg border relative group animate-slide-up ${darkMode ? 'bg-slate-700/50 border-slate-600' : 'bg-slate-50 border-slate-200'}`}>
+                            <button onClick={() => deleteItem('experience', i)} className="absolute top-2 right-2 text-slate-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity">🗑️</button>
+                            <div className="grid grid-cols-2 gap-3 mb-3">
+                                <input value={exp.role} onChange={(e) => handleExperienceChange(exp.id, 'role', e.target.value)} className="p-2 border rounded text-sm bg-transparent outline-none focus:border-indigo-500" placeholder="Role" />
+                                <input value={exp.company} onChange={(e) => handleExperienceChange(exp.id, 'company', e.target.value)} className="p-2 border rounded text-sm bg-transparent outline-none focus:border-indigo-500" placeholder="Company" />
+                                <input value={exp.duration} onChange={(e) => handleExperienceChange(exp.id, 'duration', e.target.value)} className="p-2 border rounded text-sm bg-transparent outline-none focus:border-indigo-500" placeholder="Date Range" />
+                            </div>
+                            <div className="space-y-2">
+                                {exp.points.map((pt, ptIdx) => (
+                                    <div key={ptIdx} className="flex gap-2 items-start">
+                                        <div className="flex-1 relative group/pt">
+                                            <textarea 
+                                                value={pt} 
+                                                onChange={(e) => { const newPoints = [...exp.points]; newPoints[ptIdx] = e.target.value; handleExperienceChange(exp.id, 'points', newPoints as any); }} 
+                                                className={`w-full p-2 text-sm border rounded resize-none overflow-hidden h-20 outline-none focus:ring-1 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600' : 'bg-white border-slate-300'}`}
+                                            />
+                                            <div className="absolute top-1 right-1 flex gap-1">
+                                                {isImproving === `${exp.id}-pt-${ptIdx}` ? (
+                                                    <div className="p-1 bg-white/80 rounded shadow"><svg className="animate-spin h-4 w-4 text-indigo-600" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>
+                                                ) : (
+                                                    <button onClick={() => handleImproveExpPoint(exp.id, ptIdx, pt)} className="p-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded shadow opacity-50 group-hover/pt:opacity-100 transition-all" title="Auto-Improve Bullet">✨</button>
+                                                )}
+                                                <button onClick={() => { const newPoints = exp.points.filter((_, idx) => idx !== ptIdx); handleExperienceChange(exp.id, 'points', newPoints as any); }} className="p-1 bg-red-50 hover:bg-red-100 text-red-500 rounded shadow opacity-0 group-hover/pt:opacity-100 transition-all" title="Remove Bullet">×</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                                <button onClick={() => handleExperienceChange(exp.id, 'points', [...exp.points, ''] as any)} className="text-xs text-indigo-500 hover:text-indigo-600 font-bold">+ Add Bullet</button>
+                            </div>
+                        </div>
                     ))}
-                    <button onClick={() => { const newPoints = [...proj.points, "New detail"]; handleProjectChange(proj.id, 'points', newPoints as any); }} className="text-xs text-indigo-500 font-bold ml-4 hover:underline">+ Add Point</button>
-                  </div>
+                    <button onClick={() => addItem('experience')} className="w-full py-2 border-2 border-dashed border-indigo-200 text-indigo-500 font-bold rounded-lg hover:bg-indigo-50">+ Add Experience</button>
                 </div>
-              ))}
-            </div>
+             </SectionAccordion>
 
-            {/* Education Section */}
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <label className="block text-xs font-semibold uppercase opacity-60">Education</label>
-                <button onClick={() => addItem('education')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button>
-              </div>
-              {(data.education || []).map((edu, index) => (
-                <div key={edu.id} className={`p-4 rounded-lg border mb-4 shadow-sm relative group animate-slide-down ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
-                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                    <button onClick={() => deleteItem('education', index)} className="p-1 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 mb-3">
-                    <input value={edu.school} onChange={(e) => handleEducationChange(edu.id, 'school', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="School" />
-                    <input value={edu.degree} onChange={(e) => handleEducationChange(edu.id, 'degree', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Degree" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <input value={edu.year} onChange={(e) => handleEducationChange(edu.id, 'year', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Year" />
-                    <input value={edu.gpa || ''} onChange={(e) => handleEducationChange(edu.id, 'gpa', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="GPA (optional)" />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Activities Section */}
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <label className="block text-xs font-semibold uppercase opacity-60">Activities</label>
-                <button onClick={() => addItem('activities')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button>
-              </div>
-              {(data.activities || []).map((act, index) => (
-                <div key={act.id} className={`p-4 rounded-lg border mb-4 shadow-sm relative group animate-slide-down ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
-                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                    <button onClick={() => deleteItem('activities', index)} className="p-1 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 mb-3">
-                    <input value={act.role} onChange={(e) => handleActivityChange(act.id, 'role', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Role" />
-                    <input value={act.company} onChange={(e) => handleActivityChange(act.id, 'company', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Organization" />
-                  </div>
-                  <input value={act.duration} onChange={(e) => handleActivityChange(act.id, 'duration', e.target.value)} className={`w-full p-2 border rounded text-sm mb-3 outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Duration" />
-                  <div className="space-y-2">
-                    {(act.points || []).map((pt, i) => (
-                      <div key={i} className="flex gap-2 items-start group/point">
-                        <span className="mt-2 w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0"></span>
-                        <textarea value={pt} onChange={(e) => handleActivityPointChange(act.id, i, e.target.value)} rows={2} className={`flex-1 p-2 text-sm border-b border-transparent focus:border-indigo-300 outline-none resize-none bg-transparent ${darkMode ? 'text-slate-300 focus:bg-slate-800' : 'text-slate-700 focus:bg-slate-50'}`} />
-                        <button onClick={() => { const newPoints = [...act.points]; newPoints.splice(i, 1); handleActivityChange(act.id, 'points', newPoints as any); }} className="opacity-0 group-hover/point:opacity-100 p-1 text-slate-300 hover:text-red-500 transition-opacity">×</button>
-                      </div>
+             {/* Projects Accordion */}
+             <SectionAccordion title="Projects" isOpen={sectionsOpen.projects} onToggle={() => toggleSection('projects')} darkMode={darkMode}>
+                 <div className="space-y-6">
+                    {data.projects.map((proj, i) => (
+                        <div key={proj.id} className={`p-4 rounded-lg border relative group animate-slide-up ${darkMode ? 'bg-slate-700/50 border-slate-600' : 'bg-slate-50 border-slate-200'}`}>
+                            <button onClick={() => deleteItem('projects', i)} className="absolute top-2 right-2 text-slate-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity">🗑️</button>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                                <input value={proj.title} onChange={(e) => handleProjectChange(proj.id, 'title', e.target.value)} className="p-2 border rounded text-sm bg-transparent outline-none focus:border-indigo-500" placeholder="Project Title" />
+                                <input value={proj.link || ''} onChange={(e) => handleProjectChange(proj.id, 'link', e.target.value)} className="p-2 border rounded text-sm bg-transparent outline-none focus:border-indigo-500 text-blue-500" placeholder="Project Link (Optional)" />
+                            </div>
+                            <div className="space-y-2">
+                                {proj.points.map((pt, ptIdx) => (
+                                    <div key={ptIdx} className="flex gap-2 items-start relative group/pt">
+                                        <textarea 
+                                            value={pt} 
+                                            onChange={(e) => { const newPoints = [...proj.points]; newPoints[ptIdx] = e.target.value; handleProjectPointChange(proj.id, ptIdx, e.target.value); }} 
+                                            className={`w-full p-2 text-sm border rounded resize-none overflow-hidden h-16 outline-none focus:ring-1 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600' : 'bg-white border-slate-300'}`}
+                                            placeholder="Project details..."
+                                        />
+                                        <div className="absolute top-1 right-1 flex gap-1">
+                                            {isImproving === `${proj.id}-pt-${ptIdx}` ? (
+                                                <div className="p-1 bg-white/80 rounded shadow"><svg className="animate-spin h-4 w-4 text-indigo-600" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>
+                                            ) : (
+                                                <button onClick={() => handleImproveProjectPoint(proj.id, ptIdx, pt)} className="p-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded shadow opacity-50 group-hover/pt:opacity-100 transition-all" title="Auto-Improve">✨</button>
+                                            )}
+                                            <button onClick={() => { const newPoints = proj.points.filter((_, idx) => idx !== ptIdx); handleProjectChange(proj.id, 'points', newPoints as any); }} className="p-1 bg-red-50 hover:bg-red-100 text-red-500 rounded shadow opacity-0 group-hover/pt:opacity-100 transition-all">×</button>
+                                        </div>
+                                    </div>
+                                ))}
+                                <button onClick={() => handleProjectChange(proj.id, 'points', [...proj.points, ''] as any)} className="text-xs text-indigo-500 hover:text-indigo-600 font-bold">+ Add Project Bullet</button>
+                            </div>
+                        </div>
                     ))}
-                    <button onClick={() => { const newPoints = [...act.points, "New detail"]; handleActivityChange(act.id, 'points', newPoints as any); }} className="text-xs text-indigo-500 font-bold ml-4 hover:underline">+ Add Bullet</button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                    <button onClick={() => addItem('projects')} className="w-full py-2 border-2 border-dashed border-indigo-200 text-indigo-500 font-bold rounded-lg hover:bg-indigo-50">+ Add Project</button>
+                 </div>
+             </SectionAccordion>
 
-            {/* Certifications Section */}
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <label className="block text-xs font-semibold uppercase opacity-60">Certifications</label>
-                <button onClick={() => addItem('certifications')} className="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 transition-colors shadow-sm">+ Add</button>
-              </div>
-              {(data.certifications || []).map((cert, index) => (
-                <div key={cert.id} className={`p-4 rounded-lg border mb-4 shadow-sm relative group animate-slide-down ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
-                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                    <button onClick={() => deleteItem('certifications', index)} className="p-1 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+             {/* Education Accordion */}
+             <SectionAccordion title="Education" isOpen={sectionsOpen.education} onToggle={() => toggleSection('education')} darkMode={darkMode}>
+                 <div className="space-y-6">
+                    {data.education.map((edu, i) => (
+                        <div key={edu.id} className={`p-4 rounded-lg border relative group animate-slide-up ${darkMode ? 'bg-slate-700/50 border-slate-600' : 'bg-slate-50 border-slate-200'}`}>
+                            <button onClick={() => deleteItem('education', i)} className="absolute top-2 right-2 text-slate-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity">🗑️</button>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                                <input value={edu.school} onChange={(e) => handleEducationChange(edu.id, 'school', e.target.value)} className="p-2 border rounded text-sm bg-transparent outline-none focus:border-indigo-500" placeholder="School / University" />
+                                <input value={edu.degree} onChange={(e) => handleEducationChange(edu.id, 'degree', e.target.value)} className="p-2 border rounded text-sm bg-transparent outline-none focus:border-indigo-500" placeholder="Degree" />
+                                <input value={edu.year} onChange={(e) => handleEducationChange(edu.id, 'year', e.target.value)} className="p-2 border rounded text-sm bg-transparent outline-none focus:border-indigo-500" placeholder="Year" />
+                                <input value={edu.gpa || ''} onChange={(e) => handleEducationChange(edu.id, 'gpa', e.target.value)} className="p-2 border rounded text-sm bg-transparent outline-none focus:border-indigo-500" placeholder="GPA (Optional)" />
+                                <input value={edu.honors || ''} onChange={(e) => handleEducationChange(edu.id, 'honors', e.target.value)} className="p-2 border rounded text-sm bg-transparent outline-none focus:border-indigo-500 md:col-span-2" placeholder="Honors / Awards (e.g. Dean's List)" />
+                            </div>
+                             <textarea value={edu.coursework || ''} onChange={(e) => handleEducationChange(edu.id, 'coursework', e.target.value)} className={`w-full p-2 text-sm border rounded resize-none h-16 outline-none focus:ring-1 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600' : 'bg-white border-slate-300'}`} placeholder="Relevant Coursework..." />
+                        </div>
+                    ))}
+                    <button onClick={() => addItem('education')} className="w-full py-2 border-2 border-dashed border-indigo-200 text-indigo-500 font-bold rounded-lg hover:bg-indigo-50">+ Add Education</button>
+                 </div>
+             </SectionAccordion>
+
+             {/* Certifications Accordion */}
+             <SectionAccordion title="Certifications" isOpen={sectionsOpen.certifications} onToggle={() => toggleSection('certifications')} darkMode={darkMode}>
+                 <div className="space-y-6">
+                    {data.certifications.map((cert, i) => (
+                        <div key={cert.id} className={`p-4 rounded-lg border relative group animate-slide-up ${darkMode ? 'bg-slate-700/50 border-slate-600' : 'bg-slate-50 border-slate-200'}`}>
+                            <button onClick={() => deleteItem('certifications', i)} className="absolute top-2 right-2 text-slate-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity">🗑️</button>
+                            <div className="grid grid-cols-1 gap-3">
+                                <input value={cert.name} onChange={(e) => handleCertificationChange(cert.id, 'name', e.target.value)} className="p-2 border rounded text-sm bg-transparent outline-none focus:border-indigo-500" placeholder="Certification Name" />
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input value={cert.issuer} onChange={(e) => handleCertificationChange(cert.id, 'issuer', e.target.value)} className="p-2 border rounded text-sm bg-transparent outline-none focus:border-indigo-500" placeholder="Issuer (e.g. Google)" />
+                                    <input value={cert.date} onChange={(e) => handleCertificationChange(cert.id, 'date', e.target.value)} className="p-2 border rounded text-sm bg-transparent outline-none focus:border-indigo-500" placeholder="Date Issued" />
+                                </div>
+                                <input value={cert.url || ''} onChange={(e) => handleCertificationChange(cert.id, 'url', e.target.value)} className="p-2 border rounded text-sm bg-transparent outline-none focus:border-indigo-500 text-blue-500" placeholder="Verification URL (Optional)" />
+                            </div>
+                        </div>
+                    ))}
+                    <button onClick={() => addItem('certifications')} className="w-full py-2 border-2 border-dashed border-indigo-200 text-indigo-500 font-bold rounded-lg hover:bg-indigo-50">+ Add Certification</button>
+                 </div>
+             </SectionAccordion>
+
+              {/* Skills Accordion */}
+              <SectionAccordion title="Skills" isOpen={sectionsOpen.skills} onToggle={() => toggleSection('skills')} darkMode={darkMode}>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase mb-2 opacity-60">Technical Skills</label>
+                    <div className={`w-full p-3 border rounded-md min-h-[5rem] flex flex-wrap gap-2 transition-colors mb-4 ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-slate-100 border-slate-300'}`}>
+                        {(data.skills || []).map((skill, index) => { const isMatch = missingKeywords.some(k => k.toLowerCase() === skill.toLowerCase()); return ( <span key={index} className={`px-2 py-1 rounded text-xs flex items-center animate-scale-in border ${isMatch ? 'bg-amber-100 text-amber-800 border-amber-300 shadow-sm' : 'bg-indigo-50 text-indigo-800 border-transparent'}`}> {isMatch && <span className="mr-1 text-amber-600">★</span>} {skill} <button onClick={() => removeSkill(index)} className="ml-2 hover:text-red-500 hover:scale-125 transition-transform">×</button> </span> ); })}
+                        <input value={newSkill} onChange={(e) => setNewSkill(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addSkill()} placeholder="Add skill + Enter" className={`bg-transparent outline-none text-sm min-w-[80px] flex-1 ${darkMode ? 'text-white' : 'text-slate-800'}`} />
+                    </div>
+
+                    <label className="block text-xs font-semibold uppercase mb-2 opacity-60">Soft Skills</label>
+                    <div className={`w-full p-3 border rounded-md min-h-[5rem] flex flex-wrap gap-2 transition-colors ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-slate-100 border-slate-300'}`}>
+                        {(data.softSkills || []).map((skill, index) => ( <span key={index} className="px-2 py-1 rounded text-xs flex items-center animate-scale-in border bg-slate-200 text-slate-800 border-transparent dark:bg-slate-600 dark:text-slate-200"> {skill} <button onClick={() => removeSoftSkill(index)} className="ml-2 hover:text-red-500 hover:scale-125 transition-transform">×</button> </span> ))}
+                        <input value={newSoftSkill} onChange={(e) => setNewSoftSkill(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addSoftSkill()} placeholder="Add skill + Enter" className={`bg-transparent outline-none text-sm min-w-[80px] flex-1 ${darkMode ? 'text-white' : 'text-slate-800'}`} />
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4 mb-3">
-                    <input value={cert.name} onChange={(e) => handleCertificationChange(cert.id, 'name', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Certification Name" />
-                    <input value={cert.issuer} onChange={(e) => handleCertificationChange(cert.id, 'issuer', e.target.value)} className={`p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Issuer" />
-                  </div>
-                  <input value={cert.date} onChange={(e) => handleCertificationChange(cert.id, 'date', e.target.value)} className={`w-full p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-600 text-white' : 'bg-white border-slate-300 text-slate-900'}`} placeholder="Date (e.g. 2023)" />
-                </div>
-              ))}
-            </div>
-            
-          </div>
+              </SectionAccordion>
+
+           </div>
         </div>
 
         {/* Preview Column */}
-        <div className={`flex-1 bg-slate-100/50 relative overflow-hidden flex items-center justify-center p-8 transition-colors ${darkMode ? 'bg-slate-900' : 'bg-slate-50'} ${mobileTab === 'preview' ? 'w-full block' : 'hidden md:flex'}`}>
+        <div className={`flex-1 bg-slate-100/50 relative overflow-hidden flex items-center justify-center p-8 transition-colors ${darkMode ? 'bg-slate-900' : 'bg-slate-50'} ${mobileTab === 'preview' ? 'w-full block' : 'hidden lg:flex'}`}>
           <div className="absolute inset-0 bg-grid-slate-200/50 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] dark:bg-grid-slate-800/20 pointer-events-none"></div>
           <div className="h-full w-full overflow-auto flex justify-center items-start custom-scrollbar" style={{ perspective: '1000px' }}>
             <div
@@ -919,7 +705,7 @@ const ResumeEditor: React.FC<ResumeEditorProps> = ({ initialData, jobDescription
                 fontSize: `${fontSize}pt`
               }}
             >
-              <UniversalRenderer data={data} config={activeTemplateConfig} spacing={spacing} />
+              <UniversalRenderer data={data} config={activeTemplateConfig} spacing={spacing} diffMode={diffMode} missingKeywords={missingKeywords} />
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { AnalysisResult, AppStep, AnalysisInput } from './types';
+import { AnalysisResult, AppStep, AnalysisInput, HistoryItem } from './types';
 import { analyzeResumeWithGemini, generateCoverLetter } from './services/geminiService';
 import InputSection from './components/InputSection';
 import ResultsDashboard from './components/ResultsDashboard';
@@ -7,6 +7,7 @@ import ResumeEditor from './components/ResumeEditor';
 import CoverLetterGenerator from './components/CoverLetterGenerator';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import TermsOfService from './components/TermsOfService';
+import JobTracker from './components/JobTracker';
 
 const Toast: React.FC<{ message: string; type: 'success' | 'error' | 'info'; onClose: () => void }> = ({ message, type, onClose }) => {
   useEffect(() => { const timer = setTimeout(onClose, 3000); return () => clearTimeout(timer); }, [onClose]);
@@ -73,6 +74,7 @@ const App: React.FC = () => {
   const [toasts, setToasts] = useState<{id: number, message: string, type: 'success'|'error'|'info'}[]>([]);
   const [showResetModal, setShowResetModal] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [showJobTracker, setShowJobTracker] = useState(false);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => { setMousePos({ x: e.clientX, y: e.clientY }); };
@@ -145,6 +147,14 @@ const App: React.FC = () => {
     addToast('Started new session', 'info');
   };
 
+  const loadHistoryItem = (item: HistoryItem) => {
+    setInputData(item.inputData);
+    setResult(item.result);
+    setCoverLetterContent(item.coverLetter || '');
+    setStep(AppStep.RESULTS);
+    addToast(`Loaded ${item.companyName}`, 'success');
+  };
+
   return (
     <div className={`min-h-screen transition-colors duration-300 ${darkMode ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       <ScrollProgress />
@@ -163,6 +173,13 @@ const App: React.FC = () => {
               <span className="text-2xl font-extrabold tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 to-pink-500">CareerStealth</span>
             </div>
             <div className="flex items-center gap-4">
+              <button 
+                onClick={() => setShowJobTracker(true)}
+                className="hidden md:flex items-center px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-indigo-50 text-indigo-600 border border-indigo-100 transition-colors"
+              >
+                 <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                 Job Tracker
+              </button>
               <button onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
                 {darkMode ? '☀️' : '🌙'}
               </button>
@@ -210,6 +227,8 @@ const App: React.FC = () => {
             }}
             darkMode={darkMode}
             addToast={addToast}
+            jobDescription={inputData?.jobDescription}
+            persona={inputData?.persona}
           />
         )}
 
@@ -261,6 +280,15 @@ const App: React.FC = () => {
         </div>
         <p className="opacity-60 text-xs">© {new Date().getFullYear()} CareerStealth.</p>
       </footer>
+
+      {/* Job Tracker Sidebar */}
+      <JobTracker 
+         isOpen={showJobTracker} 
+         onClose={() => setShowJobTracker(false)} 
+         onLoadHistory={loadHistoryItem}
+         currentData={result && inputData ? { input: inputData, result } : undefined}
+         darkMode={darkMode}
+      />
 
       {/* Modals & Toasts */}
       <ConfirmationModal isOpen={showResetModal} onConfirm={confirmReset} onCancel={() => setShowResetModal(false)} />
