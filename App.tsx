@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { AnalysisResult, AppStep, AnalysisInput, HistoryItem } from './types';
 import { analyzeResumeWithGemini, generateCoverLetter } from './services/geminiService';
 import InputSection from './components/InputSection';
@@ -300,6 +301,7 @@ const App: React.FC = () => {
         ))}
       </div>
       <BackToTop />
+      <SpeedInsights />
     </div>
   );
 };
