@@ -2,33 +2,41 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>CareerStealth</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script>
       tailwind.config = {
         darkMode: 'class',
         theme: {
           extend: {
             fontFamily: {
-              sans: ['Inter', 'sans-serif'],
-              serif: ['Merriweather', 'serif'],
+              sans: ['Inter', 'system-ui', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+            },
+            backgroundImage: {
+              'grid-slate': "url(\"data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32' fill='none' stroke='%23cbd5e1'%3e%3cpath d='M0 .5H31.5V32'/%3e%3c/svg%3e\")",
+              'grid-slate-dark': "url(\"data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32' fill='none' stroke='%231e293b'%3e%3cpath d='M0 .5H31.5V32'/%3e%3c/svg%3e\")",
             },
             animation: {
-              'blob': 'blob 10s infinite',
-              'fade-in': 'fadeIn 0.6s ease-out forwards',
-              'slide-up': 'slideUp 0.5s ease-out forwards',
-              'pop': 'pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards',
+              'blob': 'blob 20s infinite',
+              'fade-in': 'fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+              'slide-up': 'slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+              'pop': 'pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
               'shimmer': 'shimmer 2.5s linear infinite',
               'typewriter': 'blink 1s step-end infinite',
-              'scale-in': 'scaleIn 0.3s ease-out forwards',
-              'slide-down': 'slideDown 0.3s ease-out forwards',
-              'spin-slow': 'spin 3s linear infinite',
+              'scale-in': 'scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+              'spin-slow': 'spin 4s linear infinite', 
               'shake': 'shake 0.5s cubic-bezier(.36,.07,.19,.97) both',
               'border-spin': 'borderSpin 4s linear infinite',
+              'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'float': 'float 6s ease-in-out infinite',
+              'tilt': 'tilt 10s infinite linear',
+              'drift': 'drift 20s infinite ease-in-out',
+              'drift-slow': 'drift-slow 30s infinite ease-in-out',
+              'scan': 'scan 2s linear infinite',
             },
             keyframes: {
               blob: {
@@ -45,12 +53,8 @@
                 '0%': { opacity: '0', transform: 'translateY(20px)' },
                 '100%': { opacity: '1', transform: 'translateY(0)' },
               },
-              slideDown: {
-                '0%': { opacity: '0', transform: 'translateY(-10px)', maxHeight: '0' },
-                '100%': { opacity: '1', transform: 'translateY(0)', maxHeight: '500px' },
-              },
               pop: {
-                '0%': { opacity: '0', transform: 'scale(0.5)' },
+                '0%': { opacity: '0', transform: 'scale(0.9)' },
                 '100%': { opacity: '1', transform: 'scale(1)' },
               },
               scaleIn: {
@@ -74,6 +78,30 @@
               borderSpin: {
                 '0%': { transform: 'rotate(0deg)' },
                 '100%': { transform: 'rotate(360deg)' }
+              },
+              float: {
+                '0%, 100%': { transform: 'translateY(0)' },
+                '50%': { transform: 'translateY(-10px)' },
+              },
+              tilt: {
+                 '0%, 50%, 100%': { transform: 'rotate(0deg)' },
+                 '25%': { transform: 'rotate(1deg)' },
+                 '75%': { transform: 'rotate(-1deg)' },
+              },
+              drift: {
+                '0%': { transform: 'translate(0px, 0px)' },
+                '33%': { transform: 'translate(30px, -50px)' },
+                '66%': { transform: 'translate(-20px, 20px)' },
+                '100%': { transform: 'translate(0px, 0px)' },
+              },
+              'drift-slow': {
+                '0%': { transform: 'translate(0px, 0px)' },
+                '50%': { transform: 'translate(-40px, 30px)' },
+                '100%': { transform: 'translate(0px, 0px)' },
+              },
+              scan: {
+                '0%': { top: '0%' },
+                '100%': { top: '100%' }
               }
             }
           }
@@ -83,138 +111,127 @@
     <style>
       html {
         scroll-behavior: smooth;
+        -webkit-tap-highlight-color: transparent;
       }
       body {
         overflow-x: hidden;
       }
+      ::selection {
+        background-color: #6366f1; /* Indigo-500 */
+        color: white;
+      }
+
+      /* Noise Texture */
+      .bg-noise {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        pointer-events: none;
+        z-index: 0;
+        opacity: 0.03;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E");
+      }
+      .dark .bg-noise {
+        opacity: 0.04;
+        mix-blend-mode: overlay;
+      }
       
       /* Glassmorphism utilities */
-      .glass {
+      .glass-panel {
         background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.5);
+      }
+      .dark .glass-panel {
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
+      }
+
+      /* Floating Nav Island */
+      .nav-island {
+        background: rgba(255, 255, 255, 0.85);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         border: 1px solid rgba(255, 255, 255, 0.5);
+        box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.1);
       }
-      .dark .glass {
-        background: rgba(30, 41, 59, 0.7);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-      }
-
-      /* Hover Card Effect */
-      .hover-card {
-        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-      }
-      .hover-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.1);
-      }
-      .dark .hover-card:hover {
-        box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.5);
-        border-color: rgba(99, 102, 241, 0.5);
+      .dark .nav-island {
+        background: rgba(2, 6, 23, 0.8);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.3);
       }
 
-      /* Custom Scrollbar */
+      /* Custom Scrollbar - Slimmer & Modern */
       ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
+        width: 6px;
+        height: 6px;
       }
       ::-webkit-scrollbar-track {
         background: transparent; 
       }
       ::-webkit-scrollbar-thumb {
         background: #cbd5e1; 
-        border-radius: 4px;
+        border-radius: 99px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8; 
+        background-color: #94a3b8; 
       }
       .dark ::-webkit-scrollbar-thumb {
-        background: #475569;
+        background-color: #334155;
+      }
+      .dark ::-webkit-scrollbar-thumb:hover {
+        background-color: #475569;
       }
       
-      /* Print Specifics for PDF Generation */
-      @page {
-        margin: 0;
-      }
-      
-      .print-content {
-        background: white;
-        width: 100%;
-        min-height: 100%;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
+      /* Print Specifics */
+      @page { margin: 0; }
+      .print-content { width: 100%; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-      .break-inside-avoid {
-        break-inside: avoid;
-        page-break-inside: avoid;
-      }
-      
-      /* Fixed Confetti Animation with Sway */
+      /* Confetti Animation */
       @keyframes confetti-fall {
         0% { transform: translateY(-10vh) translateX(0) rotate(0deg); opacity: 1; }
-        25% { transform: translateY(25vh) translateX(20px) rotate(90deg); }
-        50% { transform: translateY(50vh) translateX(-20px) rotate(180deg); }
-        75% { transform: translateY(75vh) translateX(20px) rotate(270deg); }
-        100% { transform: translateY(110vh) translateX(0) rotate(360deg); opacity: 0; }
+        100% { transform: translateY(110vh) translateX(20px) rotate(720deg); opacity: 0; }
       }
-      
       .confetti {
         position: fixed;
-        width: 10px;
-        height: 10px;
+        width: 8px;
+        height: 8px;
         top: 0;
-        z-index: 9999; /* Ensure it's on top */
+        z-index: 9999;
         pointer-events: none;
         animation: confetti-fall 4s linear forwards;
-      }
-
-      .cursor-blink {
-        display: inline-block;
-        width: 2px;
-        height: 1em;
-        background-color: currentColor;
-        vertical-align: text-bottom;
-        animation: blink 1s step-end infinite;
-      }
-
-      /* Shimmer Button Background */
-      .bg-shimmer {
-        background: linear-gradient(90deg, 
-          rgba(79, 70, 229, 1) 0%, 
-          rgba(124, 58, 237, 1) 40%, 
-          rgba(167, 139, 250, 1) 50%, 
-          rgba(124, 58, 237, 1) 60%, 
-          rgba(79, 70, 229, 1) 100%
-        );
-        background-size: 200% 100%;
-      }
-
-      /* Grain Texture */
-      .bg-grain {
-        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+        border-radius: 2px;
       }
     </style>
   <script type="importmap">
 {
   "imports": {
-    "vite": "https://esm.sh/vite@^7.3.0",
-    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "jspdf": "https://esm.sh/jspdf@^3.0.4",
-    "react-markdown": "https://esm.sh/react-markdown@^10.1.0",
+    "react": "https://esm.sh/react@*",
+    "react-dom/client": "https://esm.sh/react-dom@*/client",
+    "react-dom": "https://esm.sh/react-dom@*",
+    "@google/genai": "https://esm.sh/@google/genai",
+    "jspdf": "https://esm.sh/jspdf",
+    "react-markdown": "https://esm.sh/react-markdown?external=react",
+    "recharts": "https://esm.sh/recharts?external=react,react-dom",
+    "html2canvas": "https://esm.sh/html2canvas",
+    "mammoth": "https://esm.sh/mammoth",
+    "@vercel/analytics/react": "https://esm.sh/@vercel/analytics/react?external=react",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "recharts": "https://esm.sh/recharts@^3.6.0",
-    "html2canvas": "https://esm.sh/html2canvas@^1.4.1",
-    "mammoth": "https://esm.sh/mammoth@^1.11.0"
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "@vercel/analytics/": "https://esm.sh/@vercel/analytics@^1.6.1/",
+    "vite": "https://esm.sh/vite@^7.3.0",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
   }
 }
 </script>
 </head>
-  <body>
+  <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased selection:bg-indigo-500 selection:text-white overflow-x-hidden">
     <div id="root"></div>
+    <div class="bg-noise"></div>
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>

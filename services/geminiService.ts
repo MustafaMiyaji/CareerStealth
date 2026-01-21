@@ -1,6 +1,5 @@
-
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { AnalysisResult, AnalysisInput, ResumeData, ReEvaluationResult, ExperienceItem, EducationItem, LearningResource } from "../types";
+import { AnalysisResult, AnalysisInput, ResumeData, ReEvaluationResult, ExperienceItem, EducationItem, LearningResource, ProjectItem, CertificationItem } from "../types";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -22,7 +21,7 @@ const analysisSchema: Schema = {
     },
     fixStrategy: {
       type: Type.STRING,
-      description: "Actionable advice categorized by 'Content', 'Structure', and 'Keywords'. Use markdown headers.",
+      description: "Actionable advice categorized by 'Content Impact', 'Keyword Optimization', and 'Formatting & Structure'. Use markdown headers.",
     },
     interviewPrep: {
       type: Type.ARRAY,
@@ -146,8 +145,13 @@ export const analyzeResumeWithGemini = async (input: AnalysisInput): Promise<Ana
       **TASK:**
       1. Analyze the inputs (Resume + JD).
       2. Provide an ATS Score (0-100).
-      3. **MANAGER ROAST:** A harsh, direct critique from the perspective of ${persona}.
-      4. **FIX STRATEGY:** Provide 3 distinct categories of advice: 'Content Impact', 'Keyword Optimization', and 'Formatting & Structure'. Be specific.
+      3. **MANAGER ROAST:** A harsh, direct, and specific critique from the perspective of ${persona}.
+         - **CRITICAL:** Do NOT be generic. Quote specific weak phrases from the resume. Point out exactly which skills from the JD are missing or buried. If the resume is too long, complain about it. If it's too vague, demand numbers.
+      4. **FIX STRATEGY:** Provide actionable advice categorized using the following Markdown headers:
+         - ### Content Impact
+         - ### Keyword Optimization
+         - ### Formatting & Structure
+         Under each header, provide bulleted, granular steps to improve. Be specific (e.g., "Change 'Managed team' to 'Led 5 engineers'").
       5. **INTERVIEW PREP:** Based on the gaps in the resume (e.g. missing skills, short tenure, vague bullets), generate 3 tough interview questions this specific persona would ask to test the candidate.
       6. **STRUCTURED RESUME:** Extract and rewrite content.
          - **Mandatory:** Maintain all original jobs and projects. Do not hallucinately create new ones, but DO rewrite the bullet points to be stronger and include keywords from the JD.
@@ -267,39 +271,84 @@ export const parseLinkedInProfile = async (text: string): Promise<ResumeData> =>
   const partialSchema: Schema = {
     type: Type.OBJECT,
     properties: {
-      fullName: { type: Type.STRING },
-      title: { type: Type.STRING },
-      summary: { type: Type.STRING },
+      fullName: { type: Type.STRING, description: "The user's full name" },
+      title: { type: Type.STRING, description: "Current or headline job title" },
+      summary: { type: Type.STRING, description: "The 'About' section" },
       experience: {
         type: Type.ARRAY,
+        description: "Employment history. IGNORE volunteering.",
         items: {
           type: Type.OBJECT,
           properties: {
             role: { type: Type.STRING },
             company: { type: Type.STRING },
-            duration: { type: Type.STRING },
-            points: { type: Type.ARRAY, items: { type: Type.STRING } }
+            duration: { type: Type.STRING, description: "Full date range (e.g. 'Jan 2020 - Present')" },
+            points: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Responsibilities and achievements extracted as bullet points" }
           }
         }
       },
-      skills: { type: Type.ARRAY, items: { type: Type.STRING } },
+      skills: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of technical and professional skills" },
       education: {
         type: Type.ARRAY,
+        description: "Degrees and universities. IGNORE certificates/licenses here.",
         items: {
           type: Type.OBJECT,
           properties: {
             school: { type: Type.STRING },
             degree: { type: Type.STRING },
-            year: { type: Type.STRING }
+            year: { type: Type.STRING, description: "Graduation year or range" }
           }
         }
+      },
+      projects: {
+        type: Type.ARRAY,
+        description: "Specific projects listed in the 'Projects' section or inferred from experience if explicitly labeled as a Project.",
+        items: {
+            type: Type.OBJECT,
+            properties: {
+                title: { type: Type.STRING },
+                points: { type: Type.ARRAY, items: { type: Type.STRING } },
+                link: { type: Type.STRING }
+            }
+        }
+      },
+      certifications: {
+          type: Type.ARRAY,
+          description: "Licenses & Certifications section.",
+          items: {
+              type: Type.OBJECT,
+              properties: {
+                  name: { type: Type.STRING },
+                  issuer: { type: Type.STRING },
+                  date: { type: Type.STRING },
+                  url: { type: Type.STRING }
+              }
+          }
       }
     }
   };
 
   const response = await genAI.models.generateContent({
     model: "gemini-3-flash-preview",
-    contents: `Extract resume data from this LinkedIn profile text: \n\n${text}`,
+    contents: `
+      You are a precise Data Extractor designed to parse raw text copied directly from a LinkedIn Profile (Ctrl+A, Ctrl+C).
+      
+      **YOUR GOAL:** Clean, structured JSON data.
+      
+      **CRITICAL INSTRUCTIONS:**
+      1. **IGNORE NOISE:** The input text will contain garbage like "Connect", "Message", "More", "People also viewed", "See all employees", "Home", "My Network". COMPLETELY IGNORE THESE.
+      2. **SEPARATE SECTIONS:**
+         - **Experience:** Only paid employment. Look for Company Names, Titles, and Dates.
+         - **Education:** Degrees and Universities.
+         - **Projects:** Look specifically for a "Projects" section. Do not confuse a job role with a project.
+         - **Certifications:** Look for "Licenses & certifications".
+      3. **DATES:** You MUST extract the full date duration (e.g., "Jan 2021 - Present" or "2018 - 2022").
+      4. **DESCRIPTIONS:** Extract the description text for jobs/projects and format them into an array of clear bullet points.
+      5. **SKILLS:** Aggregate skills from the "Skills" section and the "About" section.
+      
+      **RAW TEXT INPUT:**
+      ${text}
+    `,
     config: {
       responseMimeType: "application/json",
       responseSchema: partialSchema,
@@ -318,8 +367,8 @@ export const parseLinkedInProfile = async (text: string): Promise<ResumeData> =>
     softSkills: [],
     experience: (parsed.experience || []).map((e, i) => ({ ...e, id: `li-exp-${i}`, points: e.points || [] })) as ExperienceItem[],
     education: (parsed.education || []).map((e, i) => ({ ...e, id: `li-edu-${i}`, degree: e.degree || "", school: e.school || "", year: e.year || "" })) as EducationItem[],
-    projects: [],
-    certifications: [],
+    projects: (parsed.projects || []).map((p, i) => ({ ...p, id: `li-proj-${i}`, title: p.title || "Project", link: p.link || "", points: p.points || [] })) as ProjectItem[],
+    certifications: (parsed.certifications || []).map((c, i) => ({ ...c, id: `li-cert-${i}`, name: c.name || "", issuer: c.issuer || "", date: c.date || "", url: c.url || "" })) as CertificationItem[],
     activities: []
   };
 

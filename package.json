@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@google/genai": "*",
-    "@vercel/speed-insights": "^1.0.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^2.5.1",
     "mammoth": "^1.8.0",
