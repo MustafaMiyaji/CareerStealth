@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Analytics } from "@vercel/analytics/react";
 import { AnalysisResult, AppStep, AnalysisInput, HistoryItem } from './types';
 import { analyzeResumeWithGemini, generateCoverLetter } from './services/geminiService';
 import InputSection from './components/InputSection';
@@ -189,7 +188,6 @@ const App: React.FC = () => {
 
   return (
     <div className={`min-h-screen transition-colors duration-500 ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'} font-sans relative overflow-x-hidden`}>
-      <Analytics />
       <ScrollProgress />
       
       {/* Background with Toggle Awareness */}
